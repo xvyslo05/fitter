@@ -5,3 +5,5 @@ node_modules/
 dist/
 __pycache__/
 .DS_Store
+# Per-pattern extraction configs hold data derived from copyrighted patterns
+tools/pattern-extract/configs/
