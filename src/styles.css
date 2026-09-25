@@ -675,6 +675,26 @@ main {
   border-top:1px solid #e6eadf;
   border-bottom:1px solid #e6eadf;
 }
+.layout-tip {
+  position:fixed;
+  z-index:20;
+  display:grid;
+  gap:2px;
+  max-width:280px;
+  padding:7px 10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:0 4px 14px rgba(38,79,66,.14);
+  color:var(--green);
+  font-size:12px;
+  line-height:1.35;
+  pointer-events:none;
+  transform:translate(14px, 14px);
+}
+.layout-tip.flip { transform:translate(calc(-100% - 14px), 14px); }
+.layout-tip strong { font-size:12.5px; }
+.layout-tip .tip-point { color:var(--muted); }
 .layout-svg {
   display:block;
   width:100%;
