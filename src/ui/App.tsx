@@ -168,8 +168,11 @@ export function App() {
             </section>
           </fieldset>
           {prepared.error && <p class="warning" role="alert">{prepared.error}</p>}
-          <div class="run-actions">{busy ? <button type="button" class="stop-button" onClick={stop}>■ Zastavit <span>{elapsed.toFixed(1)} s</span></button>
-            : <button type="submit" class="primary" disabled={loading || !materials.length || Boolean(prepared.error)}>Spočítat rozložení <span aria-hidden="true">↗</span></button>}
+          <div class="run-actions">{busy
+            // Distinct keys + preventDefault: otherwise Preact reuses this element as the submit button
+            // before the click's default action runs, and stopping immediately restarts the run.
+            ? <button key="stop" type="button" class="stop-button" onClick={e => { e.preventDefault(); stop(); }}>■ Zastavit <span>{elapsed.toFixed(1)} s</span></button>
+            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(prepared.error)}>Spočítat rozložení <span aria-hidden="true">↗</span></button>}
             <p>{busy ? 'Průběžně zobrazujeme nejlepší nalezený výsledek.' : `Hledání až ${settings.timeMs / 1000} s na každý materiál.`}</p></div>
         </form>
         <section class="results" ref={resultsSection} aria-label="Výsledky rozložení">
