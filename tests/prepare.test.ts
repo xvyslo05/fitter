@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { demo } from '../src/model/demo';
-import { defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
+import { checkInputs, chooseVariant, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece } from './fixtures';
@@ -31,6 +31,41 @@ describe('prepare', () => {
     line.include = { 'pocket-small': false, 'pocket-large': false, 'pocket-large-back': false };
     expect(variantChoice(pattern, line, 'Kapsa')).toBeNull();
     expect(includedPieces(pattern, line).map(p => p.id)).toEqual(['body', 'handle']);
+  });
+  it('keeps a variant choice when switching sizes whose variant pieces differ', () => {
+    const { pattern, line } = setup();
+    pattern.sizes = ['S', 'M'];
+    const small = pattern.pieces[2], large = pattern.pieces[3];
+    for (const p of pattern.pieces) p.sizes = { S: p.sizes.uni, M: p.sizes.uni };
+    const smallS = { ...structuredClone(small), id: 'small-s', sizes: { S: small.sizes.S } };
+    const smallM = { ...structuredClone(small), id: 'small-m', sizes: { M: small.sizes.M } };
+    pattern.pieces = [pattern.pieces[0], smallS, smallM, large];
+    line.size = 'S'; line.include = chooseVariant(pattern, line, 'Kapsa', 'Malá');
+    line.size = 'M'; line.include = chooseVariant(pattern, line, 'Kapsa', 'Velká');
+    line.size = 'S';
+    expect(variantChoice(pattern, line, 'Kapsa')).toBe('Velká');
+    expect(includedPieces(pattern, line).map(p => p.id)).toEqual(['body', 'pocket-large']);
+    line.size = 'M'; line.include = chooseVariant(pattern, line, 'Kapsa', '');
+    line.size = 'S';
+    expect(variantChoice(pattern, line, 'Kapsa')).toBeNull();
+  });
+  it('sums surplus mirrored copies of the same piece over order lines', () => {
+    const { pattern, settings } = setup(); settings.seamAmount = 0;
+    pattern.pieces = [asymmetricPiece(1)];
+    const lines = [makeOrder(pattern, 'a'), makeOrder(pattern, 'b')];
+    const output = prepare([pattern], lines, { 'Vnější látka': { ...fabric, folded: true } }, settings);
+    expect(output.materials['Vnější látka']).toHaveLength(2);
+    expect(output.notes).toEqual([`${pattern.name} · Asymetrický díl (Vnější látka): vystřihne se 2 kusy navíc (zrcadlově).`]);
+  });
+  it('reports invalid settings and fabrics before a run', () => {
+    const { settings } = setup();
+    expect(checkInputs(settings, {}, ['Vnější látka'])).toBeNull();
+    expect(checkInputs({ ...settings, gap: NaN }, {}, [])).toMatch(/Mezera/);
+    expect(checkInputs({ ...settings, timeMs: 61_000 }, {}, [])).toMatch(/Čas/);
+    expect(checkInputs({ ...settings, resolution: 0.1 }, {}, [])).toMatch(/Krok/);
+    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, width: NaN } }, ['Vnější látka'])).toMatch(/Vnější látka: šířka/);
+    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, length: 0 } }, ['Vnější látka'])).toMatch(/Vnější látka: délka/);
+    expect(checkInputs(settings, { Unused: { ...fabric, width: NaN } }, ['Vnější látka'])).toBeNull();
   });
   it('only includes pieces available in the selected size', () => {
     const { pattern, line } = setup();

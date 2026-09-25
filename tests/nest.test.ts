@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox, intersectionArea, polygonDistance } from '../src/geom/polygon';
-import { nest, nestOnce } from '../src/nest/nest';
-import type { Fabric, NestResult, Rotation } from '../src/nest/types';
+import { nest, nestOnce, seededRandom } from '../src/nest/nest';
+import type { Fabric, NestPiece, NestResult, Rotation } from '../src/nest/types';
 import { diamond, mixedPieces, options, rectangle, square } from './fixtures';
 
 function assertSafe(result: NestResult, fabric: Fabric, gap: number) {
@@ -89,6 +89,31 @@ describe('nesting', () => {
     expect(progress).toHaveLength(1);
     expect(result).toEqual(nestOnce(pieces, fabric, options));
     assertSafe(result, fabric, options.gap);
+  });
+  it('never leaves a piece narrower than the roll unplaced, even with sharp miters and a large gap', () => {
+    const random = seededRandom(7);
+    for (let run = 0; run < 90; run++) {
+      const resolution = [0.25, 0.5, 1][run % 3], gap = Math.round(random() * 20) / 10, width = 20 + Math.round(random() * 130);
+      const pieces: NestPiece[] = Array.from({ length: 2 + Math.floor(random() * 6) }, (_, i) => {
+        const w = 1 + random() * (width - 1), h = 1 + random() * 40, skew = random() * w * 0.5;
+        return { key: `p${i}`, label: `p${i}`, polygon: [[skew, 0], [w, 0], [w - skew * 0.3, h], [0, h * 0.8]], rotation: 'none' };
+      });
+      const fabric = { width, length: null, folded: false };
+      const result = nestOnce(pieces, fabric, { gap, resolution, timeMs: 0, seed: 1 });
+      expect(result.unplaced, JSON.stringify({ run, resolution, gap, width })).toEqual([]);
+      assertSafe(result, fabric, gap);
+    }
+  });
+  it('keeps ordinary pieces on folded fabric at least gap / 2 from the fold', () => {
+    const gap = 1, fabric = { width: 150, length: null, folded: true };
+    const ordinary = mixedPieces(8), fold = { ...square('fold'), polygon: rectangle(12, 19), foldEdge: true };
+    const result = nestOnce([fold, ...ordinary], fabric, { ...options, gap });
+    expect(result.unplaced).toEqual([]);
+    for (const p of result.placements) {
+      if (p.key === 'fold') expect(bbox(p.polygon).minX).toBe(0);
+      else expect(bbox(p.polygon).minX).toBeGreaterThanOrEqual(gap / 2 - 1e-6);
+    }
+    assertSafe(result, fabric, gap);
   });
   it('rejects invalid numeric settings and duplicate keys', () => {
     const fabric = { width: 150, length: null, folded: false };

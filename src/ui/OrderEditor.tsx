@@ -1,4 +1,4 @@
-import { includedPieces, own, variantChoice, variantLabel } from '../model/prepare';
+import { chooseVariant, includedPieces, own, variantChoice, variantLabel } from '../model/prepare';
 import type { OrderLine, Settings } from '../model/prepare';
 import type { PatternFile } from '../model/pattern';
 import { NumberField, RotationSelect } from './fields';
@@ -34,11 +34,8 @@ export function OrderEditor({ line, patterns, settings, onChange, onRemove, onSe
         {[...new Set(pattern.pieces.filter(p => p.variantGroup && p.sizes[line.size]).map(p => p.variantGroup!))].map(group => {
           const members = pattern.pieces.filter(p => p.variantGroup === group && p.sizes[line.size]);
           return <label class="field" key={group}><span>Varianta · {group}</span>
-            <select value={variantChoice(pattern, line, group) ?? ''} onChange={e => {
-              const choice = e.currentTarget.value, include = { ...line.include };
-              for (const p of members) include[p.id] = variantLabel(p) === choice;
-              onChange({ ...line, include });
-            }}>
+            <select value={variantChoice(pattern, line, group) ?? ''}
+              onChange={e => onChange({ ...line, include: chooseVariant(pattern, line, group, e.currentTarget.value) })}>
               {[...new Set(members.map(variantLabel))].map(label => <option key={label} value={label}>{label}</option>)}
               <option value="">— vynechat —</option>
             </select></label>;

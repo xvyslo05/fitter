@@ -30,6 +30,25 @@ describe('parsePatternFile', () => {
       expect(() => parsePatternFile(input)).toThrow(/Díl/);
     }
   });
+  it('rejects a fold whose outline leaves the fold line between its endpoints', () => {
+    const input = structuredClone(demo);
+    // A 2 cm notch into the piece in the middle of the fold edge: endpoints still lie on the outline.
+    input.pieces[0].sizes.uni.outline = [[0, 0], [10, 0], [10, 20], [0, 20], [2, 10]];
+    input.pieces[0].sizes.uni.fold = [[0, 0], [0, 20]];
+    expect(() => parsePatternFile(input)).toThrow(/lom musí ležet/);
+  });
+  it('rejects the reserved key "__proto__" as pattern, piece, size or material name', () => {
+    const mutations = [
+      (p: typeof demo) => { p.id = '__proto__'; },
+      (p: typeof demo) => { p.pieces[0].id = '__proto__'; },
+      (p: typeof demo) => { p.pieces[0].cut[0].material = '__proto__'; },
+      (p: typeof demo) => { p.sizes = ['__proto__']; },
+    ];
+    for (const mutate of mutations) {
+      const input = structuredClone(demo); mutate(input);
+      expect(() => parsePatternFile(input)).toThrow(/vyhrazený/);
+    }
+  });
   it('accepts a fold annotation with small extraction rounding error', () => {
     const input = structuredClone(demo);
     input.pieces[0].sizes.uni.fold = [[0.08, 0], [0.08, 34]];

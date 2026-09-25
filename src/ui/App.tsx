@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
-import { defaultFabric, defaultSettings, makeOrder, own, prepare } from '../model/prepare';
+import { checkInputs, defaultFabric, defaultSettings, makeOrder, own, prepare } from '../model/prepare';
 import type { PreparedOrder } from '../model/prepare';
 import type { Fabric, NestJob, NestResult, WorkerResponse } from '../nest/types';
 import { deletePattern, loadLibrary, loadWorkspace, savePattern, saveWorkspace } from '../storage';
@@ -47,6 +47,7 @@ export function App() {
     catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : 'Zkontrolujte zakázku.' }; }
   }, [patterns, order, fabrics, settings]);
   const materials = Object.keys(prepared.data.materials);
+  const inputError = prepared.error ?? checkInputs(settings, fabrics, materials);
   const stale = snapshot && snapshot.signature !== signature;
   const updateFabric = (material: string, fabric: Fabric) => setWorkspace(prev => ({ ...prev, fabrics: { ...prev.fabrics, [material]: fabric } }));
   const updateSettings = (next: Workspace['settings']) => setWorkspace(prev => ({ ...prev, settings: next }));
@@ -79,7 +80,7 @@ export function App() {
     } catch { setMessages(['Střih se nepodařilo odstranit z úložiště.']); }
   }
   function run() {
-    if (prepared.error) { setMessages([prepared.error]); return; }
+    if (inputError) { setMessages([inputError]); return; }
     if (!materials.length) { setMessages(['Přidejte do zakázky alespoň jeden vybraný díl.']); return; }
     if (order.some(line => !patterns.some(p => p.id === line.patternId))) {
       setMessages(['V zakázce chybí střih. Importujte jej znovu, nebo odeberte jeho řádek.']); return;
@@ -167,12 +168,12 @@ export function App() {
               </details>
             </section>
           </fieldset>
-          {prepared.error && <p class="warning" role="alert">{prepared.error}</p>}
+          {inputError && <p class="warning" role="alert">{inputError}</p>}
           <div class="run-actions">{busy
             // Distinct keys + preventDefault: otherwise Preact reuses this element as the submit button
             // before the click's default action runs, and stopping immediately restarts the run.
             ? <button key="stop" type="button" class="stop-button" onClick={e => { e.preventDefault(); stop(); }}>■ Zastavit <span>{elapsed.toFixed(1)} s</span></button>
-            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(prepared.error)}>Spočítat rozložení <span aria-hidden="true">↗</span></button>}
+            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(inputError)}>Spočítat rozložení <span aria-hidden="true">↗</span></button>}
             <p>{busy ? 'Průběžně zobrazujeme nejlepší nalezený výsledek.' : `Hledání až ${settings.timeMs / 1000} s na každý materiál.`}</p></div>
         </form>
         <section class="results" ref={resultsSection} aria-label="Výsledky rozložení">

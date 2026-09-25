@@ -11,6 +11,8 @@ export interface Raster {
   angle: Placement['angle'];
   flipY: boolean;
   rows: RasterRow[];
+  top: number;  // first raster row (negative when inflated by the gap)
+  left: number; // leftmost occupied column
 }
 export function mergeSpans(spans: Span[]): Span[] {
   spans.sort((a, b) => a[0] - b[0]);
@@ -59,7 +61,8 @@ export function orientations(piece: NestPiece, gap: number, resolution: number):
     : angles.map(angle => ({ angle, flipY: false }));
   return transforms.map(({ angle, flipY }) => {
     const polygon = normalize(flipY ? mirrorY(piece.polygon) : rotate(piece.polygon, angle));
-    const b = bbox(polygon);
-    return { polygon, width: b.width, height: b.height, angle, flipY, rows: rasterize(polygon, gap, resolution) };
+    const b = bbox(polygon), rows = rasterize(polygon, gap, resolution);
+    return { polygon, width: b.width, height: b.height, angle, flipY, rows,
+      top: rows[0]?.y ?? 0, left: Math.min(0, ...rows.map(r => r.spans[0][0])) };
   });
 }

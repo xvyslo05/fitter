@@ -40,6 +40,12 @@ function string(value: unknown, path: string): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 2000) fail(path, 'očekáván neprázdný text (nejvýše 2 000 znaků).');
   return value;
 }
+// Used as keys of plain objects in the app, where "__proto__" would hit the prototype setter.
+function key(value: unknown, path: string): string {
+  const s = string(value, path);
+  if (s === '__proto__') fail(path, 'název „__proto__“ je vyhrazený.');
+  return s;
+}
 function number(value: unknown, path: string, positive = false): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || (positive && value <= 0) || Math.abs(value) > 1e9)
     fail(path, 'očekáváno platné číslo' + (positive ? ' větší než nula.' : '.'));
@@ -77,7 +83,9 @@ function size(value: unknown, path: string): PieceSize {
     if (length < 1e-6) fail(path, 'lom má nulovou délku.');
     const sides = outline.map(([x, y]) => ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) / length);
     const onBoundary = (p: Pt) => outline.some((v, i) => pointSegmentDistance(p, v, outline[(i + 1) % outline.length]) <= FOLD_TOLERANCE);
-    if ((sides.some(s => s > FOLD_TOLERANCE) && sides.some(s => s < -FOLD_TOLERANCE)) || !onBoundary(a) || !onBoundary(b))
+    // The whole fold edge, not just its endpoints, must follow the outline.
+    const alongFold = Array.from({ length: 33 }, (_, i): Pt => [a[0] + (b[0] - a[0]) * i / 32, a[1] + (b[1] - a[1]) * i / 32]);
+    if ((sides.some(s => s > FOLD_TOLERANCE) && sides.some(s => s < -FOLD_TOLERANCE)) || !alongFold.every(onBoundary))
       fail(path, 'lom musí ležet na rovné hraně obrysu (tolerance 0,2 cm) a díl musí být na jedné straně.');
     result.fold = [a, b];
   }
@@ -87,7 +95,7 @@ function size(value: unknown, path: string): PieceSize {
 export function parsePatternFile(json: unknown): PatternFile {
   const v = object(json, 'Střih');
   if (v.format !== 'fitter-pattern@1') fail('Střih', 'nepodporovaný formát; očekáván fitter-pattern@1.');
-  const sizes = array(v.sizes, 'Velikosti').map(s => string(s, 'Velikost'));
+  const sizes = array(v.sizes, 'Velikosti').map(s => key(s, 'Velikost'));
   if (new Set(sizes).size !== sizes.length) fail('Velikosti', 'opakující se velikost.');
   const pieces = array(v.pieces, 'Díly').map((value, i): Piece => {
     const path = `Díl ${i + 1}`, p = object(value, path);
@@ -95,11 +103,11 @@ export function parsePatternFile(json: unknown): PatternFile {
     if (!sizeEntries.length || sizeEntries.some(([key]) => !sizes.includes(key))) fail(path, 'velikosti dílu musí být ze seznamu velikostí střihu.');
     if (p.optional !== undefined && typeof p.optional !== 'boolean') fail(path, 'optional musí být true nebo false.');
     return {
-      id: string(p.id, `${path}.id`), name: string(p.name, `${path}.name`),
+      id: key(p.id, `${path}.id`), name: string(p.name, `${path}.name`),
       cut: array(p.cut, `${path}.cut`).map(c => {
         const item = object(c, path), count = number(item.count, `${path}.cut.count`, true);
         if (!Number.isSafeInteger(count) || count > 1000) fail(path, 'počet kopií musí být celé číslo 1–1 000.');
-        return { material: string(item.material, `${path}.cut.material`), count };
+        return { material: key(item.material, `${path}.cut.material`), count };
       }),
       optional: p.optional as boolean | undefined,
       variant: optionalString(p.variant, path), variantGroup: optionalString(p.variantGroup, path),
@@ -109,7 +117,7 @@ export function parsePatternFile(json: unknown): PatternFile {
   });
   if (new Set(pieces.map(p => p.id)).size !== pieces.length) fail('Díly', 'ID dílů musí být jedinečná.');
   return {
-    format: 'fitter-pattern@1', id: string(v.id, 'ID střihu'), name: string(v.name, 'Název střihu'),
+    format: 'fitter-pattern@1', id: key(v.id, 'ID střihu'), name: string(v.name, 'Název střihu'),
     author: v.author === null ? null : optionalString(v.author, 'Autor'), source: optionalString(v.source, 'Zdroj'),
     seamAllowance: seam(v.seamAllowance, 'Švová záložka'),
     notes: v.notes === null ? null : optionalString(v.notes, 'Poznámky'), sizes, pieces,

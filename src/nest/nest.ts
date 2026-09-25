@@ -39,18 +39,23 @@ function collisionJump(board: Map<number, Span[]>, raster: Raster, x: number, y:
 function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, rasters: Raster[][], order: number[], orient?: number[]): NestResult {
   const board = new Map<number, Span[]>(), placements: Placement[] = [], unplaced: string[] = [];
   const width = fabric.width / (fabric.folded ? 2 : 1), step = opts.resolution;
-  let usedLength = 0, placedArea = 0;
+  // boardBottom: first raster row below every occupied cell.
+  let usedLength = 0, placedArea = 0, boardBottom = 0;
   for (const index of order) {
     const piece = pieces[index], variants = rasters[index];
     let best: { x: number; y: number; raster: Raster } | undefined;
     for (let n = 0; n < variants.length; n++) {
       const raster = variants[((orient?.[index] ?? 0) + n) % variants.length];
       if (raster.width > width + 1e-8 || (fabric.length !== null && raster.height > fabric.length + 1e-8)) continue;
+      // Ordinary pieces on folded fabric keep their inflated cells right of the fold,
+      // i.e. at least gap / 2 from the crease and a full gap from their mirrored copy.
+      const minX = fabric.folded && !piece.foldEdge ? -raster.left : 0;
       const maxX = piece.foldEdge ? 0 : Math.floor((width - raster.width + 1e-8) / step);
-      const ceiling = fabric.length ?? usedLength + raster.height + opts.gap + step * 2;
-      const maxY = Math.min(Math.floor((ceiling - raster.height + 1e-8) / step), best?.y ?? Infinity);
+      // On a roll, starting the piece's top row at boardBottom is always free.
+      const lastY = fabric.length === null ? Math.max(0, boardBottom - raster.top) : Math.floor((fabric.length - raster.height + 1e-8) / step);
+      const maxY = Math.min(lastY, best?.y ?? Infinity);
       search: for (let y = 0; y <= maxY; y++) {
-        for (let x = 0; x <= maxX;) {
+        for (let x = minX; x <= maxX;) {
           const next = collisionJump(board, raster, x, y);
           if (next === x) {
             if (!best || y < best.y || (y === best.y && x < best.x)) best = { x, y, raster };
@@ -70,6 +75,7 @@ function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, raste
     placements.push({ key: piece.key, x: x * step, y: y * step, angle: raster.angle, flipY: raster.flipY,
       polygon: translate(raster.polygon, x * step, y * step) });
     usedLength = Math.max(usedLength, y * step + raster.height);
+    if (raster.rows.length) boardBottom = Math.max(boardBottom, y + raster.rows[raster.rows.length - 1].y + 1);
     placedArea += area(piece.polygon);
   }
   return { placements, unplaced, usedLength, utilization: placedArea / (width * (fabric.length ?? usedLength) || 1), iterations: 1 };
