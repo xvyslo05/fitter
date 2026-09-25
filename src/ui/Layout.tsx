@@ -71,8 +71,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       <svg ref={ref} xmlns="http://www.w3.org/2000/svg" class="layout-svg" role="img" aria-label={`Rozložení dílů na materiálu ${material}`}
         viewBox={`-17 -14 ${width + 23} ${displayLength + 20}`} width={`${width + 23}cm`} height={`${displayLength + 20}cm`}
         onPointerMove={track} onPointerDown={track} onPointerLeave={() => { setPointer(null); setActive(null); }}>
-        <title>{material} · rozložení střihů</title>
-        <desc>{`Rozměr ${cm(width)} × ${cm(length)} cm. Využití ${cm(result.utilization * 100)} %. Šipky ukazují směr vlákna, ↔ zrcadlení.`}</desc>
+        <desc>{`${material} · rozložení střihů. Rozměr ${cm(width)} × ${cm(length)} cm. Využití ${cm(result.utilization * 100)} %. Šipky ukazují směr vlákna, ↔ zrcadlení.`}</desc>
         <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} fill="#faf9f5" />
         <g font-family="system-ui, sans-serif" font-size="2.3" fill="#657367" stroke="#d4d9d0" stroke-width="0.16">
           {ticks(width).map(x => <g key={`x${x}`}><line x1={x} x2={x} y1={-3} y2={displayLength} stroke-dasharray="0.5 1" />
@@ -92,7 +91,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
           const arrow = Math.min(5, Math.min(b.height, b.width) * 0.22);
           const mirrored = mirroredKeys.includes(p.key) || placement.flipY;
           return <g key={p.key} onPointerEnter={() => setActive(p.key)} onPointerLeave={() => setActive(k => k === p.key ? null : k)}>
-            <title>{p.label}{mirrored ? ' · zrcadleno' : ''}{p.foldEdge ? ' · na lomu' : ''}</title>
+            <desc>{p.label}{mirrored ? ' · zrcadleno' : ''}{p.foldEdge ? ' · na lomu' : ''}</desc>
             <polygon points={placement.polygon.map(v => v.join(',')).join(' ')} fill={p.color} stroke={active === p.key ? MARK : '#435b4c'}
               stroke-width={active === p.key ? 0.45 : 0.22} stroke-linejoin="round" />
             <g transform={`translate(${cx} ${cy})`} fill="#283f33" font-family="system-ui, sans-serif" font-size={fontSize} text-anchor="middle">
