@@ -1064,3 +1064,40 @@ main {
     transition:none!important;
   }
 }
+.pdf-import-button { margin-top:12px; }
+.pdf-dialog {
+  width:min(1320px,96vw); max-height:94vh; padding:26px; border:1px solid var(--border);
+  border-radius:14px; color:inherit; background:var(--surface); overflow:auto;
+}
+.pdf-dialog::backdrop { background:#19372b99; }
+.pdf-header,.pdf-footer,.pdf-preview-heading,.pdf-block-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.pdf-header h2 { font-size:25px; margin:0; }
+.pdf-steps { display:flex; gap:24px; list-style:none; padding:14px 0; border-bottom:1px solid var(--border); }
+.pdf-steps [aria-current] { color:var(--green); font-weight:700; }
+.pdf-steps [aria-disabled] { color:var(--muted); }
+.pdf-file { margin:18px 0; }
+.pdf-file input { max-width:100%; }
+.pdf-summary { overflow-wrap:anywhere; }
+.pdf-workspace { display:grid; grid-template-columns:310px minmax(0,1fr); gap:24px; align-items:start; }
+.pdf-editor h3 { margin:18px 0 8px; }
+.pdf-block { border:1px solid var(--border); border-radius:8px; padding:12px; margin:12px 0; min-width:0; }
+.pdf-block legend { padding:0 5px; }
+.pdf-block .field { margin-bottom:8px; }
+.pdf-block-actions { flex-wrap:wrap; }
+.pdf-preview { min-width:0; position:sticky; top:0; background:var(--surface); }
+.pdf-preview-heading label { display:flex; align-items:center; gap:8px; font-size:12px; }
+.pdf-preview-heading input { max-width:110px; }
+.pdf-canvas-scroll { max-height:65vh; overflow:auto; border:1px solid var(--border); background:white; }
+.pdf-canvas-scroll canvas { display:block; height:auto; }
+.pdf-seam { display:inline-block; width:18px; border-top:2px solid #9ca3a0; margin:0 4px 3px 8px; }
+.pdf-seam.verified { border-color:#22864b; }
+.pdf-footer { border-top:1px solid var(--border); margin-top:24px; padding-top:18px; }
+.pdf-footer .primary { width:auto; padding:10px 28px; cursor:not-allowed; }
+@media(max-width:850px) {
+  .pdf-dialog { padding:18px; }
+  .pdf-workspace { grid-template-columns:1fr; }
+  .pdf-preview { position:static; }
+  .pdf-steps { gap:12px; font-size:12px; flex-wrap:wrap; }
+}
+
+.pdf-unused { display: flex; flex-wrap: wrap; gap: .35rem .8rem; padding: 0; list-style: none; font-size: .85rem; }

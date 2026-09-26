@@ -11,6 +11,7 @@ import { NumberField, RotationSelect } from './fields';
 import { EmptyLayout, Layout } from './Layout';
 import { Library } from './Library';
 import { OrderEditor } from './OrderEditor';
+import { PdfImport } from './PdfImport';
 
 interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: string[] }
 export function App() {
@@ -22,7 +23,7 @@ export function App() {
   const [storageWarning, setStorageWarning] = useState(false), [busy, setBusy] = useState(false);
   const [results, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null), [status, setStatus] = useState('');
-  const [elapsed, setElapsed] = useState(0);
+  const [elapsed, setElapsed] = useState(0), [pdfImport, setPdfImport] = useState(false);
   const worker = useRef<Worker | null>(null), resultsSection = useRef<HTMLElement>(null);
   const { order, fabrics, settings } = workspace;
   useEffect(() => {
@@ -128,7 +129,7 @@ export function App() {
       <div class="workspace">
         <form class="controls" onSubmit={e => { e.preventDefault(); run(); }}>
           <fieldset disabled={busy} class="controls-fieldset">
-            <Library patterns={patterns} loading={loading} onImport={importFiles} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
+            <Library onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
               onDelete={pattern => void removePattern(pattern)} />
             <section class="panel"><div class="section-heading"><h2><span class="step">01</span>Zakázka</h2><span class="count">{order.length}</span></div>
               {!order.length && <p class="muted">Vyberte střih v knihovně tlačítkem „+ Přidat“.</p>}
@@ -189,6 +190,7 @@ export function App() {
         </section>
       </div>
     </main>
+    {pdfImport && <PdfImport onClose={() => setPdfImport(false)} />}
     <footer class="site-footer"><span class="brand-small">fitter.</span><span>Naplánováno s rozmyslem. Ušito s radostí.</span><span>Bez účtu. Bez odesílání dat.</span></footer>
   </>;
 }

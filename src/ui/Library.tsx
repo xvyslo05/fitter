@@ -2,8 +2,8 @@ import { useRef, useState } from 'preact/hooks';
 import type { PatternFile } from '../model/pattern';
 import { demo } from '../model/demo';
 
-export function Library({ patterns, loading, onImport, onAdd, onDelete }: {
-  patterns: PatternFile[]; loading: boolean; onImport: (files: File[]) => Promise<void>;
+export function Library({ patterns, loading, onImport, onImportPdf, onAdd, onDelete }: {
+  patterns: PatternFile[]; loading: boolean; onImportPdf: () => void; onImport: (files: File[]) => Promise<void>;
   onAdd: (pattern: PatternFile) => void; onDelete: (pattern: PatternFile) => void;
 }) {
   const input = useRef<HTMLInputElement>(null), [dragging, setDragging] = useState(false);
@@ -19,6 +19,7 @@ export function Library({ patterns, loading, onImport, onAdd, onDelete }: {
         const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void onImport(files);
       }} />
     </div>
+    <button type="button" class="secondary pdf-import-button" onClick={onImportPdf}>Importovat PDF…</button>
     <div class="library-list">{patterns.map(p => <div class="library-item" key={p.id}>
       <div class="grow"><strong>{p.name}</strong><p>{p.id === demo.id ? 'Syntetické demo' : p.author ?? 'Vlastní střih'} · {p.pieces.length} dílů · {p.sizes.join(', ')}</p></div>
       <button type="button" class="text-button" onClick={() => onAdd(p)} aria-label={`Přidat ${p.name} do zakázky`}>+ Přidat</button>
