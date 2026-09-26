@@ -4,10 +4,22 @@ import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/pl
 import { contentPages } from '../pdf/match';
 import { styleLegend } from '../pdf/styles';
 import { detectScale, overrideScale, CM_PER_PT } from '../pdf/scale';
+import { suggestPieces } from '../pdf/pieces';
+import type { PieceDraft } from '../pdf/pieces';
+import { buildPattern, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
 import { area, bbox } from '../geom/polygon';
-import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
+import { demo } from '../model/demo';
+import { parsePatternFile } from '../model/pattern';
+import type { PatternFile } from '../model/pattern';
+import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
+import { draftProblems, Pieces, sizeColor } from './PdfPieces';
+import { downloadPattern, Save } from './PdfSave';
+import type { SaveMeta } from './PdfSave';
 
 interface BlockDraft { first: string; last: string; rows: string }
+// The assembled sheet: all paths, texts, and paths without page furniture.
+interface Sheet { paths: PdfPath[]; texts: PdfText[]; content: PdfPath[] }
+const STEPS = ['Stránky', 'Velikosti', 'Díly', 'Uložit'];
 const draft = (b: LayoutBlock): BlockDraft => ({ first: String(b.pages[0]), last: String(b.pages[1]), rows: b.rows.join(',') });
 const number = (value: string) => Number(value.replace(',', '.'));
 
@@ -23,7 +35,6 @@ export function closePdfImport(dialog: Pick<HTMLDialogElement, 'close'> | null, 
   focus?.focus();
 }
 
-const sizeColor = (index: number) => `hsl(${(index * 137.5 + 210) % 360} 75% 38%)`;
 function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null }) {
   const canvas = useRef<HTMLCanvasElement>(null), [zoom, setZoom] = useState(1);
   const sheet = useMemo(() => {
@@ -98,15 +109,9 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
   </div>;
 }
 
-function Sizes({ doc, layout, active, result, onResult }: {
-  doc: PdfDoc; layout: PageLayout; active: boolean; result: TraceResult | null; onResult: (value: TraceResult | null) => void;
+function Sizes({ doc, layout, sheet, active, result, onResult }: {
+  doc: PdfDoc; layout: PageLayout; sheet: Sheet; active: boolean; result: TraceResult | null; onResult: (value: TraceResult | null) => void;
 }) {
-  const sheet = useMemo(() => {
-    const { placements } = placePages(doc, layout);
-    // Page furniture (frames, marks repeated on every page) must not win the default "uni" guess.
-    return { paths: assemblePaths(doc, placements), texts: assembleTexts(doc, placements),
-      content: assemblePaths(contentPages(doc), placements) };
-  }, [doc, layout]);
   const legend = useMemo(() => styleLegend(sheet.paths), [sheet]);
   const detected = useMemo(() => detectScale(doc), [doc]);
   const [assignments, setAssignments] = useState<Record<string, string>>({}), [suggesting, setSuggesting] = useState(false);
@@ -127,6 +132,7 @@ function Sizes({ doc, layout, active, result, onResult }: {
         worker?.terminate();
       };
       worker.onerror = () => { if (!cancelled) setSuggesting(false); worker?.terminate(); };
+      // Page furniture (frames, marks repeated on every page) must not win the default "uni" guess.
       const request: SuggestRequest = { suggest: true, paths: sheet.content, texts: sheet.texts, scale: detected };
       worker.postMessage(request);
     } catch { setSuggesting(false); }
@@ -198,13 +204,16 @@ function Sizes({ doc, layout, active, result, onResult }: {
   </div></div>;
 }
 
-export function PdfImport({ onClose }: { onClose: () => void }) {
+export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFile[]; onSaved: (pattern: PatternFile) => void; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null), request = useRef(0);
   const [doc, setDoc] = useState<PdfDoc | null>(null), [name, setName] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [stage, setStage] = useState(1), [traced, setTraced] = useState<TraceResult | null>(null);
   const [detected, setDetected] = useState<ReturnType<typeof detectLayout> | null>(null);
   const [blocks, setBlocks] = useState<BlockDraft[]>([]), [step, setStep] = useState(['', '']);
+  // Piece drafts belong to one trace result (key); `suggested` backs "Podle čáry".
+  const [pieces, setPieces] = useState<{ key: string; suggested: PieceDraft[]; drafts: PieceDraft[] } | null>(null);
+  const [meta, setMeta] = useState<SaveMeta | null>(null);
   useEffect(() => {
     const focus = document.activeElement, node = dialog.current;
     node?.showModal();
@@ -222,13 +231,49 @@ export function PdfImport({ onClose }: { onClose: () => void }) {
     } catch (e) { return { layout: null, message: e instanceof Error ? e.message : 'Zkontrolujte bloky.' }; }
   }, [doc, blocks, step]);
   const unused = doc && edited.layout ? unusedPages(doc, edited.layout) : [];
+  const sheet = useMemo<Sheet | null>(() => {
+    if (!doc || !edited.layout) return null;
+    const { placements } = placePages(doc, edited.layout);
+    return { paths: assemblePaths(doc, placements), texts: assembleTexts(doc, placements), content: assemblePaths(contentPages(doc), placements) };
+  }, [doc, edited.layout]);
+  const suggestedSeam = useMemo(() => sheet ? suggestSeamAllowance(sheet.texts) : 'unknown', [sheet]);
+  const piecesReady = !!pieces?.drafts.some(d => d.include) && pieces.drafts.every(d => !d.include || !draftProblems(d).length);
+  const built = useMemo(() => {
+    if (stage !== 4 || !traced || !pieces || !meta) return null;
+    try {
+      if (meta.id.trim() === demo.id) throw new Error('ID střihu je vyhrazené pro vestavěné demo.');
+      const pattern = buildPattern(traced, pieces.drafts, { ...meta, id: meta.id.trim(), source: name });
+      parsePatternFile(pattern);
+      return { pattern, error: '' };
+    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : 'Střih nelze sestavit.' }; }
+  }, [stage, traced, pieces, meta, name]);
+  // A repeated trace of the same sheet gives the same result: keep the user's edits then.
+  function toPieces() {
+    if (!traced || !sheet) return;
+    const key = JSON.stringify(traced);
+    if (pieces?.key !== key) {
+      const suggested = suggestPieces(traced, { contentPaths: sheet.content, texts: sheet.texts });
+      setPieces({ key, suggested, drafts: suggested }); setMeta(null);
+    }
+    setStage(3);
+  }
+  function toSave() {
+    if (!meta && traced) {
+      const title = patternName(doc?.title, name);
+      setMeta({ name: title, id: uniqueId(slug(title) || 'strih-z-pdf', patterns.map(p => p.id)), author: '', seamAllowance: suggestedSeam, sizes: sortSizes(traced.sizes) });
+    }
+    setStage(4);
+  }
+  // ready[i]: step i + 1 can be opened from the step before it.
+  const ready = [true, !!edited.layout && !busy, !!traced?.candidates.length, piecesReady];
+  const next = [() => setStage(2), toPieces, toSave][stage - 1];
   function apply(layout: PageLayout) {
     setBlocks(layout.blocks.map(draft)); setStep(layout.step.map(n => String(Math.round(n * 1000) / 1000)));
   }
   async function open(file?: File) {
     if (!file) return;
     const id = ++request.current;
-    setBusy(true); setError(''); setDoc(null); setName(file.name); setDetected(null); setStage(1); setTraced(null);
+    setBusy(true); setError(''); setDoc(null); setName(file.name); setDetected(null); setStage(1); setTraced(null); setPieces(null); setMeta(null);
     try {
       const { readPdf } = await import('../pdf/readPdf');
       const doc = await readPdf(new Uint8Array(await file.arrayBuffer()));
@@ -252,8 +297,9 @@ export function PdfImport({ onClose }: { onClose: () => void }) {
   return <dialog ref={dialog} class="pdf-dialog" aria-labelledby="pdf-title" onCancel={e => { e.preventDefault(); onClose(); }}>
     <div class="pdf-header"><div><p class="eyebrow">Knihovna střihů</p><h2 id="pdf-title">Import PDF</h2></div>
       <button type="button" class="secondary" onClick={onClose}>Zavřít</button></div>
-    <ol class="pdf-steps" aria-label="Kroky importu"><li aria-current={stage === 1 ? 'step' : undefined}>1 · Stránky</li><li aria-current={stage === 2 ? 'step' : undefined} aria-disabled={edited.layout ? undefined : 'true'}>2 · Velikosti</li><li aria-disabled="true">3 · Díly</li><li aria-disabled="true">4 · Uložit</li></ol>
-    <p class="small muted">PDF zůstává v tomto prohlížeči. Připravte arch, přiřaďte styly velikostem a zkontrolujte obrysy. Pojmenování dílů a uložení přibudou ve třetí fázi.</p>
+    <ol class="pdf-steps" aria-label="Kroky importu">{STEPS.map((label, i) => <li key={label} aria-current={stage === i + 1 ? 'step' : undefined}
+      aria-disabled={i + 1 > stage && !ready[i] ? 'true' : undefined}>{i + 1} · {label}</li>)}</ol>
+    <p class="small muted">PDF zůstává v tomto prohlížeči. Připravte arch, přiřaďte styly velikostem, zkontrolujte díly a uložte střih do knihovny.</p>
     {stage === 1 && <label class="field pdf-file"><span>Vybrat PDF</span><input type="file" accept=".pdf,application/pdf" onChange={e => { void open(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} /></label>}
     {busy && <p role="status">Načítám {name} a hledám návaznost stránek…</p>}
     {error && <p class="warning" role="alert">{error}</p>}
@@ -281,9 +327,14 @@ export function PdfImport({ onClose }: { onClose: () => void }) {
         {edited.message && <p class="warning" role="alert">{edited.message}</p>}
       </div>{edited.layout ? <Preview doc={doc} layout={edited.layout} /> : <p class="muted">Náhled se zobrazí po opravě bloků a kroku.</p>}</div>
     </>}
-    {doc && edited.layout && <div hidden={stage !== 2}><Sizes doc={doc} layout={edited.layout} active={stage === 2} result={traced} onResult={setTraced} /></div>}
-    <div class="pdf-footer"><span class="small muted">Krok {stage} ze 4 · {stage === 1 ? 'Stránky' : 'Velikosti'}</span>
-      <div class="pdf-navigation">{stage === 2 && <button type="button" class="secondary" onClick={() => setStage(1)}>Zpět</button>}
-        <button type="button" class="primary" disabled={stage === 2 || !edited.layout || busy} onClick={() => setStage(2)} title={stage === 2 ? 'Pojmenování a uložení dílů přibude ve třetí fázi' : undefined}>Další</button></div></div>
+    {doc && edited.layout && sheet && <div hidden={stage !== 2}><Sizes doc={doc} layout={edited.layout} sheet={sheet} active={stage === 2} result={traced} onResult={setTraced} /></div>}
+    {stage === 3 && traced && pieces && sheet && <Pieces result={traced} drafts={pieces.drafts} suggested={pieces.suggested} textLayer={sheet.texts.length > 0}
+      onChange={(index, patch) => setPieces(prev => prev && { ...prev, drafts: prev.drafts.map((d, i) => i === index ? { ...d, ...patch } : d) })} />}
+    {stage === 4 && meta && <Save meta={meta} onChange={setMeta} patterns={patterns} suggestedSeam={suggestedSeam} pattern={built?.pattern ?? null} error={built?.error ?? ''} />}
+    <div class="pdf-footer"><span class="small muted">Krok {stage} ze 4 · {STEPS[stage - 1]}</span>
+      <div class="pdf-navigation">{stage > 1 && <button type="button" class="secondary" onClick={() => setStage(stage - 1)}>Zpět</button>}
+        {stage < 4 ? <button type="button" class="primary" disabled={!ready[stage]} onClick={next}>Další</button> : <>
+          <button type="button" class="secondary" disabled={!built?.pattern} onClick={() => built?.pattern && downloadPattern(built.pattern)}>Stáhnout .json</button>
+          <button type="button" class="primary" disabled={!built?.pattern} onClick={() => built?.pattern && onSaved(built.pattern)}>Uložit do knihovny</button></>}</div></div>
   </dialog>;
 }

@@ -72,6 +72,15 @@ export function App() {
     if (count) messages.unshift(`Importováno střihů: ${count}. Stejná ID nahrazují předchozí verzi.`);
     setMessages(messages); setLoading(false);
   }
+  // The PDF wizard's result goes the way of a JSON import: stored, listed, reported.
+  async function savePdfPattern(pattern: PatternFile) {
+    if (pattern.id === demo.id) { setMessages(['ID vestavěného demo střihu je vyhrazené.']); return; }
+    let message = `Střih „${pattern.name}“ je uložený v knihovně. Stejné ID nahrazuje předchozí verzi.`;
+    try { await savePattern(pattern); }
+    catch { message = `${pattern.name}: ukládání není dostupné, střih zůstane jen do zavření stránky.`; }
+    setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
+    setMessages([message]); setPdfImport(false);
+  }
   async function removePattern(pattern: PatternFile) {
     try {
       await deletePattern(pattern.id);
@@ -190,7 +199,7 @@ export function App() {
         </section>
       </div>
     </main>
-    {pdfImport && <PdfImport onClose={() => setPdfImport(false)} />}
+    {pdfImport && <PdfImport patterns={patterns} onSaved={pattern => void savePdfPattern(pattern)} onClose={() => setPdfImport(false)} />}
     <footer class="site-footer"><span class="brand-small">fitter.</span><span>Naplánováno s rozmyslem. Ušito s radostí.</span><span>Bez účtu. Bez odesílání dat.</span></footer>
   </>;
 }

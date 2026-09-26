@@ -85,6 +85,7 @@ export async function readPdf(data: Uint8Array): Promise<PdfDoc> {
       pages.push({ index, width: viewport.width, height: viewport.height, paths, texts, clips });
       page.cleanup();
     }
-    return { pages };
+    const info = (await pdf.getMetadata().catch(() => null))?.info as { Title?: unknown } | undefined;
+    return { pages, ...(typeof info?.Title === 'string' && info.Title.trim() ? { title: info.Title.trim() } : {}) };
   } finally { await task.destroy(); }
 }
