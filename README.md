@@ -15,6 +15,8 @@ Statická aplikace pro rozložení nepravidelných střihových dílů na látku
 
 Na nesložené látce se díly na lomu rozvinou zrcadlením a sjednocením obrysu. Volba „Páry zrcadlově“ zrcadlí u každého kusu oblečení každou druhou kopii dílu (např. levý a pravý rukáv). Na složené látce zůstávají díly na lomu polovinami s hranou přesně na lomu. Ostatní umístění dávají zrcadlový pár; u lichého počtu kopií aplikace upozorní na zrcadlové kusy navíc. Není-li lom svislý s tolerancí 1°, díl se rozvine a na složené látce se řeže ve dvou vrstvách jako běžný díl. Záložka u polovičního dílu nepřesahuje přes lom.
 
+**Vzhled** v záhlaví přepíná světlý a tmavý motiv. Výchozí volba **Automaticky** sleduje nastavení systému, i když se změní za běhu. Volba se ukládá do `localStorage`; exporty SVG a PNG zůstávají vždy světlé, vhodné k tisku.
+
 ## Soukromí a ukládání
 
 Importované střihy zůstávají v **IndexedDB tohoto prohlížeče a této adresy webu**. Zakázka, látky a nastavení se ukládají do `localStorage`. Aplikace nemá síťové služby ani externí fonty. Při nedostupném úložišti zobrazí upozornění a funguje v paměti. Vymazání dat prohlížeče odstraní i knihovnu; originální JSON soubory si ponechte jako zálohu. Změna prohlížeče nebo adresy webu knihovnu nepřenáší.

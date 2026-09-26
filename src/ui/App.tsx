@@ -7,6 +7,8 @@ import type { PreparedOrder } from '../model/prepare';
 import type { Fabric, NestJob, NestResult, WorkerResponse } from '../nest/types';
 import { deletePattern, loadLibrary, loadWorkspace, savePattern, saveWorkspace } from '../storage';
 import type { Workspace } from '../storage';
+import { applyTheme, loadThemeChoice, saveThemeChoice } from '../theme';
+import type { ThemeChoice } from '../theme';
 import { NumberField, RotationSelect } from './fields';
 import { EmptyLayout, Layout } from './Layout';
 import { Library } from './Library';
@@ -24,6 +26,7 @@ export function App() {
   const [results, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null), [status, setStatus] = useState('');
   const [elapsed, setElapsed] = useState(0), [pdfImport, setPdfImport] = useState(false);
+  const [themeChoice, setThemeChoice] = useState(loadThemeChoice);
   const worker = useRef<Worker | null>(null), resultsSection = useRef<HTMLElement>(null);
   const { order, fabrics, settings } = workspace;
   useEffect(() => {
@@ -122,6 +125,9 @@ export function App() {
       if (window.innerWidth < 900) resultsSection.current?.scrollIntoView({ behavior: 'smooth' });
     } catch { setBusy(false); setMessages(['Prohlížeč nemohl spustit výpočetní worker.']); setStatus('Výpočet se nezdařil.'); }
   }
+  function chooseTheme(choice: ThemeChoice) {
+    setThemeChoice(choice); applyTheme(choice); saveThemeChoice(choice);
+  }
   function stop() {
     worker.current?.terminate(); worker.current = null; setBusy(false);
     setStatus('Zastaveno. Nejlepší dosud nalezené rozložení zůstává zobrazené.');
@@ -129,7 +135,10 @@ export function App() {
 
   return <>
     <header class="site-header"><a href="./" class="brand" aria-label="fitter · úvod"><span class="brand-mark" aria-hidden="true">f</span>fitter<span class="brand-dot">.</span></a>
-      <span class="header-note">Malý pomocník pro velké plány</span><span class="local-badge"><span aria-hidden="true">●</span> Vše zůstává u vás</span></header>
+      <span class="header-note">Malý pomocník pro velké plány</span><span class="local-badge"><span aria-hidden="true">●</span> Vše zůstává u vás</span>
+      <label class="theme-picker"><span>Vzhled</span><select value={themeChoice} onChange={e => chooseTheme(e.currentTarget.value as ThemeChoice)}>
+        <option value="auto">Automaticky</option><option value="light">Světlý</option><option value="dark">Tmavý</option>
+      </select></label></header>
     <main>
       <div class="intro"><div><p class="eyebrow">Od střihu k látce</p><h1>Střihy na svém místě.</h1><p>Rozložte díly, využijte látku a pusťte se do šití.</p></div><span class="intro-tag">Méně odstřižků.<br />Více možností.</span></div>
       {storageWarning && <div class="notice warning" role="status">Prohlížeč neumožňuje uložit zakázku a nastavení. Po zavření stránky se nezachovají.</div>}

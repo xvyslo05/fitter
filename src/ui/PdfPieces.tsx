@@ -3,8 +3,8 @@ import { bbox, pointSegmentDistance } from '../geom/polygon';
 import { foldEdges, sizeFolds } from '../pdf/pieces';
 import type { Edge, PieceDraft } from '../pdf/pieces';
 import type { PieceCandidate, Pt, TraceResult } from '../pdf/types';
+import { sizeColor } from '../theme';
 
-export const sizeColor = (index: number) => `hsl(${(index * 137.5 + 210) % 360} 75% 38%)`;
 const points = (ring: Pt[]) => ring.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const degrees = (n: number) => Number.isFinite(n) ? Math.round(n * 10) / 10 : '';
 
@@ -46,7 +46,7 @@ function Thumbnail({ result, candidate, draft, edges, folds, onPick }: {
     aria-label={`Náhled kandidáta ${candidate.id}: ${Object.keys(candidate.sizes).length} velikostí, ${fold ? 'lom vyznačen' : 'bez lomu'}, vlákno ${degrees(draft.grainAngle)}°`}>
     <polygon points={points(ref)} class="pdf-thumb-ref" vector-effect="non-scaling-stroke" />
     {Object.entries(candidate.sizes).filter(([size]) => size !== candidate.refSize).map(([size, ring]) =>
-      <polygon key={size} points={points(ring)} fill="none" stroke={sizeColor(result.sizes.indexOf(size))} stroke-width="1" vector-effect="non-scaling-stroke" />)}
+      <polygon key={size} points={points(ring)} fill="none" style={{ stroke: sizeColor(result.sizes.indexOf(size)) }} stroke-width="1" vector-effect="non-scaling-stroke" />)}
     {edges.map((e, j) => j !== draft.foldEdge && <line key={j} x1={e.a[0]} y1={e.a[1]} x2={e.b[0]} y2={e.b[1]} class="pdf-thumb-edge" vector-effect="non-scaling-stroke" />)}
     {Object.entries(folds).map(([size, f]) => f && <line key={size} x1={f[0][0]} y1={f[0][1]} x2={f[1][0]} y2={f[1][1]} class="pdf-thumb-fold" vector-effect="non-scaling-stroke" />)}
     {half > 0 && <polyline points={points(arrow)} class="pdf-thumb-grain" vector-effect="non-scaling-stroke" />}

@@ -4,7 +4,8 @@ import type { Pt } from '../model/pattern';
 import type { Fabric, NestPiece, NestResult } from '../nest/types';
 import { exportPNG, exportSVG } from './export';
 
-const colors = ['#d9e6ce', '#f3d3b7', '#cbdfe6', '#e4d6e9', '#efe4b4', '#cadcd4'];
+// Colours are palette tokens (styles.css); exports replace them with the light values.
+const colors = Array.from({ length: 6 }, (_, i) => `var(--piece-${i + 1})`);
 const cm = (n: number) => new Intl.NumberFormat('cs', { maximumFractionDigits: 1 }).format(n);
 const ticks = (length: number) => Array.from({ length: Math.floor(length / 10) + 1 }, (_, i) => i * 10);
 function labelPoint(polygon: Pt[]): Pt {
@@ -20,7 +21,7 @@ function labelPoint(polygon: Pt[]): Pt {
   }
   return [x, y];
 }
-const MARK = '#b25336';
+const MARK = 'var(--mark)';
 // Piece-edge positions along one ruler; `label` is false where it would overlap the previous label.
 function breakpoints(values: number[], minGap: number): { v: number; label: boolean }[] {
   const sorted = [...new Set(values.map(v => Math.round(v * 10) / 10))].sort((a, b) => a - b);
@@ -38,7 +39,7 @@ function Dimension({ x1, y1, x2, y2, label }: { x1: number; y1: number; x2: numb
     {vertical ? <><line x1={x1 - t} x2={x1 + t} y1={y1} y2={y1} stroke-width="0.18" /><line x1={x1 - t} x2={x1 + t} y1={y2} y2={y2} stroke-width="0.18" /></>
       : <><line x1={x1} x2={x1} y1={y1 - t} y2={y1 + t} stroke-width="0.18" /><line x1={x2} x2={x2} y1={y1 - t} y2={y1 + t} stroke-width="0.18" /></>}
     <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 + (vertical ? 0.6 : -0.6)} text-anchor={vertical ? 'start' : 'middle'} dx={vertical ? 0.9 : 0}
-      stroke="#faf9f5" stroke-width="0.5" paint-order="stroke">{label}</text>
+      style="stroke:var(--fabric)" stroke-width="0.5" paint-order="stroke">{label}</text>
   </g>;
 }
 export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
@@ -72,15 +73,15 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         viewBox={`-17 -14 ${width + 23} ${displayLength + 20}`} width={`${width + 23}cm`} height={`${displayLength + 20}cm`}
         onPointerMove={track} onPointerDown={track} onPointerLeave={() => { setPointer(null); setActive(null); }}>
         <desc>{`${material} · rozložení střihů. Rozměr ${cm(width)} × ${cm(length)} cm. Využití ${cm(result.utilization * 100)} %. Šipky ukazují směr vlákna, ↔ zrcadlení.`}</desc>
-        <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} fill="#faf9f5" />
-        <g font-family="system-ui, sans-serif" font-size="2.3" fill="#657367" stroke="#d4d9d0" stroke-width="0.16">
+        <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} style="fill:var(--fabric)" />
+        <g font-family="system-ui, sans-serif" font-size="2.3" style="fill:var(--muted);stroke:var(--fabric-grid)" stroke-width="0.16">
           {ticks(width).map(x => <g key={`x${x}`}><line x1={x} x2={x} y1={-3} y2={displayLength} stroke-dasharray="0.5 1" />
             <text x={x} y={-5} text-anchor="middle" stroke="none">{x}</text></g>)}
           {ticks(displayLength).map(y => <g key={`y${y}`}><line x1={-3} x2={width} y1={y} y2={y} stroke-dasharray="0.5 1" />
             <text x={-5} y={y + 0.8} text-anchor="end" stroke="none">{y}</text></g>)}
           <text x={-8} y={-7} stroke="none" font-size="2">cm</text>
         </g>
-        <rect x={0} y={0} width={width} height={displayLength} fill="none" stroke="#48614f" stroke-width="0.35" />
+        <rect x={0} y={0} width={width} height={displayLength} fill="none" style="stroke:var(--ink)" stroke-width="0.35" />
         {result.placements.map(placement => {
           const p = pieceMap.get(placement.key)!;
           const b = bbox(placement.polygon), [cx, cy] = labelPoint(placement.polygon);
@@ -92,21 +93,21 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
           const mirrored = mirroredKeys.includes(p.key) || placement.flipY;
           return <g key={p.key} onPointerEnter={() => setActive(p.key)} onPointerLeave={() => setActive(k => k === p.key ? null : k)}>
             <desc>{p.label}{mirrored ? ' · zrcadleno' : ''}{p.foldEdge ? ' · na lomu' : ''}</desc>
-            <polygon points={placement.polygon.map(v => v.join(',')).join(' ')} fill={p.color} stroke={active === p.key ? MARK : '#435b4c'}
+            <polygon points={placement.polygon.map(v => v.join(',')).join(' ')} style={{ fill: p.color, stroke: active === p.key ? MARK : 'var(--ink)' }}
               stroke-width={active === p.key ? 0.45 : 0.22} stroke-linejoin="round" />
-            <g transform={`translate(${cx} ${cy})`} fill="#283f33" font-family="system-ui, sans-serif" font-size={fontSize} text-anchor="middle">
+            <g transform={`translate(${cx} ${cy})`} style="fill:var(--text)" font-family="system-ui, sans-serif" font-size={fontSize} text-anchor="middle">
               <text y={-fontSize}>{shortLabel}</text>
-              <g transform={`rotate(${placement.angle + (placement.flipY ? 180 : 0)})`} stroke="#48614f" stroke-width="0.25" fill="none">
+              <g transform={`rotate(${placement.angle + (placement.flipY ? 180 : 0)})`} style="stroke:var(--ink)" stroke-width="0.25" fill="none">
                 <path d={`M0,0 L0,${arrow} M-0.8,${arrow - 1} L0,${arrow} L0.8,${arrow - 1}`} />
               </g>
               {mirrored && <text x={fontSize * 1.6} y={fontSize * 1.8}>↔</text>}
             </g>
-            {p.foldEdge && <line x1={0} x2={0} y1={b.minY} y2={b.maxY} stroke="#b25336" stroke-width="0.65" />}
+            {p.foldEdge && <line x1={0} x2={0} y1={b.minY} y2={b.maxY} style={{ stroke: MARK }} stroke-width="0.65" />}
           </g>;
         })}
-        {fabric.folded && <g stroke="#b25336" fill="#b25336"><line x1={0} x2={0} y1={0} y2={displayLength} stroke-width="0.4" stroke-dasharray="2 1" />
+        {fabric.folded && <g style={{ stroke: MARK, fill: MARK }}><line x1={0} x2={0} y1={0} y2={displayLength} stroke-width="0.4" stroke-dasharray="2 1" />
           <text x={1} y={-1.5} font-family="system-ui, sans-serif" font-size="2.5" stroke="none">lom</text></g>}
-        <g class="breakpoints" stroke={MARK} fill={MARK} font-family="system-ui, sans-serif" font-size="1.5" pointer-events="none">
+        <g class="breakpoints" style={{ stroke: MARK, fill: MARK }} font-family="system-ui, sans-serif" font-size="1.5" pointer-events="none">
           {xMarks.map(({ v, label }) => {
             const on = hot && (Math.abs(v - hot.minX) < 0.05 || Math.abs(v - hot.maxX) < 0.05);
             return <g key={`bx${v}`}><line x1={v} x2={v} y1={-2.2} y2={0} stroke-width={on ? 0.35 : 0.15} />
@@ -118,10 +119,10 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
               {(hot ? on : label) && <text x={-10.2} y={v + 0.5} text-anchor="end" stroke="none" font-weight={on ? 700 : 400}>{cm(v)}</text>}</g>;
           })}
         </g>
-        {pointer && <g stroke="#48614f" stroke-width="0.12" stroke-dasharray="0.5 0.4" opacity="0.7" pointer-events="none">
+        {pointer && <g style="stroke:var(--ink)" stroke-width="0.12" stroke-dasharray="0.5 0.4" opacity="0.7" pointer-events="none">
           <line x1={pointer.x} x2={pointer.x} y1={-2.2} y2={displayLength} /><line x1={-2.2} x2={width} y1={pointer.y} y2={pointer.y} />
         </g>}
-        {hot && <g stroke={MARK} fill={MARK} font-family="system-ui, sans-serif" font-size="1.7" pointer-events="none">
+        {hot && <g style={{ stroke: MARK, fill: MARK }} font-family="system-ui, sans-serif" font-size="1.7" pointer-events="none">
           <g stroke-width="0.12" stroke-dasharray="0.6 0.5">
             <line x1={hot.minX} x2={hot.minX} y1={-2.2} y2={hot.maxY} /><line x1={hot.maxX} x2={hot.maxX} y1={-2.2} y2={hot.maxY} />
             <line x1={-2.2} x2={hot.maxX} y1={hot.minY} y2={hot.minY} /><line x1={-2.2} x2={hot.maxX} y1={hot.maxY} y2={hot.maxY} />
@@ -157,12 +158,12 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
 
 export function EmptyLayout() {
   return <div class="empty-layout"><svg viewBox="0 0 320 230" aria-hidden="true">
-    <defs><pattern id="empty-grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#dce2d7" stroke-width="1" /></pattern></defs>
-    <rect x="30" y="20" width="260" height="185" rx="3" fill="url(#empty-grid)" stroke="#aab9a7" stroke-dasharray="4 4" />
-    <path d="M45 35H135L148 138 120 160H45Z" fill="#d9e6ce" stroke="#819276" />
-    <path d="M163 35H190V175H163Z" fill="#f3d3b7" stroke="#b2967c" />
-    <path d="M205 35H268V92L254 104H218L205 92Z" fill="#cbdfe6" stroke="#829da6" />
-    <path d="M94 80V118M88 111L94 118 100 111M176 80V118M170 111L176 118 182 111" fill="none" stroke="#61765b" stroke-width="2" />
+    <defs><pattern id="empty-grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" style="stroke:var(--fabric-grid)" stroke-width="1" /></pattern></defs>
+    <rect x="30" y="20" width="260" height="185" rx="3" fill="url(#empty-grid)" style="stroke:var(--sketch-frame)" stroke-dasharray="4 4" />
+    <path d="M45 35H135L148 138 120 160H45Z" style="fill:var(--piece-1);stroke:var(--sketch-1)" />
+    <path d="M163 35H190V175H163Z" style="fill:var(--piece-2);stroke:var(--sketch-2)" />
+    <path d="M205 35H268V92L254 104H218L205 92Z" style="fill:var(--piece-3);stroke:var(--sketch-3)" />
+    <path d="M94 80V118M88 111L94 118 100 111M176 80V118M170 111L176 118 182 111" fill="none" style="stroke:var(--muted)" stroke-width="2" />
   </svg><p class="eyebrow">Každý centimetr se počítá</p><h3>Najděte místo pro každý díl.</h3>
     <p>Přidejte střihy do zakázky, zadejte látku<br />a nechte fitter hledat úsporné rozložení.</p>
     <span class="small muted">Demo střih je připravený k vyzkoušení.</span></div>;

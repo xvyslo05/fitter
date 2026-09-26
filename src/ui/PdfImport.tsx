@@ -12,7 +12,8 @@ import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
 import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
-import { draftProblems, Pieces, sizeColor } from './PdfPieces';
+import { inlineTokens, sizeColor, useTheme } from '../theme';
+import { draftProblems, Pieces } from './PdfPieces';
 import { downloadPattern, Save } from './PdfSave';
 import type { SaveMeta } from './PdfSave';
 
@@ -30,13 +31,18 @@ export function tracePreviewPath(ctx: Pick<CanvasRenderingContext2D, 'moveTo' | 
     if (path.closed[i] || (!path.stroke && path.fill)) ctx.closePath();
   });
 }
+// A PDF colour on the preview. The dark theme inverts its lightness and keeps the hue, so black lines turn light.
+export function inkColor(rgb: number[], dark: boolean): string {
+  const shift = dark ? 1 - Math.max(...rgb) - Math.min(...rgb) : 0;
+  return `rgb(${rgb.map(c => Math.round((c + shift) * 255)).join(',')})`;
+}
 export function closePdfImport(dialog: Pick<HTMLDialogElement, 'close'> | null, focus: Pick<HTMLElement, 'focus'> | null) {
   dialog?.close();
   focus?.focus();
 }
 
 function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null }) {
-  const canvas = useRef<HTMLCanvasElement>(null), [zoom, setZoom] = useState(1);
+  const canvas = useRef<HTMLCanvasElement>(null), [zoom, setZoom] = useState(1), theme = useTheme();
   const sheet = useMemo(() => {
     const placed = placePages(doc, layout), paths = assemblePaths(doc, placed.placements);
     let minX = 0, minY = 0, maxX = 1, maxY = 1;
@@ -52,15 +58,17 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
   useEffect(() => {
     const node = canvas.current, ctx = node?.getContext('2d');
     if (!node || !ctx) return;
+    // Canvas colours: the palette tokens on screen, read again when the theme changes.
+    const style = getComputedStyle(node), token = (name: string) => style.getPropertyValue(name).trim();
     const scale = Math.min(1800 * zoom / sheet.width, 3600 / sheet.height, 4096 / sheet.width);
     node.width = Math.ceil(sheet.width * scale); node.height = Math.ceil(sheet.height * scale);
-    ctx.fillStyle = '#fffefb'; ctx.fillRect(0, 0, node.width, node.height);
+    ctx.fillStyle = token('--sheet'); ctx.fillRect(0, 0, node.width, node.height);
     ctx.scale(scale, scale); ctx.translate(-sheet.minX, -sheet.minY);
     ctx.lineWidth = 0.65 / scale;
     for (const path of sheet.paths) {
       const color = path.stroke ?? path.fill;
       if (!color) continue;
-      ctx.strokeStyle = sizesMode ? '#d3d6d3' : `rgb(${color.map(c => Math.round(c * 255)).join(',')})`;
+      ctx.strokeStyle = sizesMode ? token('--sheet-line') : inkColor(color, theme === 'dark');
       ctx.beginPath();
       tracePreviewPath(ctx, path);
       ctx.stroke();
@@ -68,29 +76,29 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
     if (sizesMode) {
       if (result) for (const candidate of result.candidates) {
         for (const [size, ring] of Object.entries(candidate.sizes)) {
-          ctx.strokeStyle = sizeColor(result.sizes.indexOf(size)); ctx.lineWidth = 2 / scale;
+          ctx.strokeStyle = inlineTokens(sizeColor(result.sizes.indexOf(size)), token); ctx.lineWidth = 2 / scale;
           ctx.beginPath(); ring.forEach(([x, y], i) => { if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
           ctx.closePath(); ctx.stroke();
         }
         const b = bbox(candidate.sizes[candidate.refSize]), x = (b.minX + b.maxX) / 2, y = (b.minY + b.maxY) / 2;
         ctx.font = `bold ${15 / scale}px system-ui`; ctx.textAlign = 'center';
-        ctx.lineWidth = 4 / scale; ctx.strokeStyle = '#fffefb'; ctx.strokeText(String(candidate.id), x, y);
-        ctx.fillStyle = '#173e31'; ctx.fillText(String(candidate.id), x, y);
+        ctx.lineWidth = 4 / scale; ctx.strokeStyle = token('--sheet'); ctx.strokeText(String(candidate.id), x, y);
+        ctx.fillStyle = token('--brand-text'); ctx.fillText(String(candidate.id), x, y);
       }
       return;
     }
     ctx.font = `${12 / scale}px system-ui`; ctx.lineWidth = 0.8 / scale;
     for (const p of sheet.placements) {
       const page = doc.pages.find(page => page.index === p.page)!;
-      ctx.strokeStyle = '#a6aea7'; ctx.setLineDash([4 / scale, 3 / scale]);
+      ctx.strokeStyle = token('--sheet-frame'); ctx.setLineDash([4 / scale, 3 / scale]);
       ctx.strokeRect(p.x, p.y, page.width, page.height); ctx.setLineDash([]);
-      ctx.fillStyle = '#264f42'; ctx.fillText(String(p.page), p.x + 5 / scale, p.y + 15 / scale);
+      ctx.fillStyle = token('--brand-text'); ctx.fillText(String(p.page), p.x + 5 / scale, p.y + 15 / scale);
     }
     ctx.lineWidth = 2 / scale;
     for (const seam of sheet.seams) {
       const a = sheet.placements.find(p => p.page === seam.a)!, b = sheet.placements.find(p => p.page === seam.b)!;
       const page = doc.pages.find(p => p.index === a.page)!;
-      ctx.strokeStyle = seam.matched ? '#22864b' : '#9ca3a0'; ctx.beginPath();
+      ctx.strokeStyle = token(seam.matched ? '--seam-ok' : '--seam'); ctx.beginPath();
       if (a.row === b.row) {
         const x = (a.x + page.width + b.x) / 2;
         ctx.moveTo(x, a.y); ctx.lineTo(x, a.y + page.height);
@@ -100,7 +108,7 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
       }
       ctx.stroke();
     }
-  }, [doc, sheet, zoom, sizesMode, result]);
+  }, [doc, sheet, zoom, sizesMode, result, theme]);
   return <div class="pdf-preview">
     <div class="pdf-preview-heading"><h3>Složený arch</h3><label>Zvětšení <input aria-label="Zvětšení náhledu" type="range" min="1" max="4" step="0.5" value={zoom} onInput={e => setZoom(Number(e.currentTarget.value))} /></label></div>
     {sizesMode ? <p class="pdf-size-colors">{result?.sizes.map((size, i) => <span key={size} style={{ color: sizeColor(i) }}>● {size}</span>)}</p>

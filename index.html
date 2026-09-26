@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#264f42" />
+    <meta name="theme-color" content="#264f42" media="(prefers-color-scheme: light)" data-scheme="light" />
+    <meta name="theme-color" content="#131916" media="(prefers-color-scheme: dark)" data-scheme="dark" />
+    <script>
+      // Vzhled (src/theme.ts): apply a pinned light/dark choice before the first paint.
+      try { var theme = localStorage.getItem('fitter:theme'); if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme; } catch (e) { /* no storage: follow the system */ }
+    </script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='8' y='26' font-family='sans-serif' font-size='30' font-weight='bold' fill='%23264f42'%3Ef%3C/text%3E%3C/svg%3E" />
     <meta name="description" content="Rozložte střihy na látku. Soukromě, přímo v prohlížeči." />
     <title>fitter · Střihy na svém místě</title>
