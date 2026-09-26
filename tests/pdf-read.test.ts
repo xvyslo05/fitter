@@ -45,6 +45,20 @@ describe('readPdf', () => {
     expect(p.paths[0].fill).toEqual([0, 0, 0]);
     expect(p.texts[0]).toMatchObject({ str: 'A1', x: 25, y: 250, height: 12 });
   });
+  it('reads text where ReadableStream has no async iterator (Safari 26.5)', async () => {
+    const proto = ReadableStream.prototype, original = Object.getOwnPropertyDescriptor(proto, Symbol.asyncIterator);
+    delete (proto as unknown as Record<symbol, unknown>)[Symbol.asyncIterator];
+    try {
+      expect(Symbol.asyncIterator in proto).toBe(false);
+      const { pages: [p] } = await readPdf(pdfBytes([{ content: 'BT /F1 12 Tf 1 0 0 1 25 50 Tm (A1) Tj ET BT /F1 12 Tf 1 0 0 1 25 80 Tm (B2) Tj ET' }]));
+      expect(p.texts.map(t => t.str)).toEqual(['A1', 'B2']);
+      const chunks: number[] = [];
+      for await (const chunk of new ReadableStream<number>({ start(c) { c.enqueue(1); c.enqueue(2); c.close(); } })) chunks.push(chunk);
+      expect(chunks).toEqual([1, 2]);
+    } finally {
+      if (original) Object.defineProperty(proto, Symbol.asyncIterator, original);
+    }
+  });
   it('restores graphics styles and applies skewed CTMs to curves and ExtGState', async () => {
     const { pages: [p] } = await readPdf(pdfBytes([{ content: `0 0 1 RG 0 1 0 rg 2 w [2 5] 0 d
       q /GS gs 1 0 0 rg 0 1 0 RG 2 1 0.5 2 10 20 cm

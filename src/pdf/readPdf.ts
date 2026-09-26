@@ -9,7 +9,25 @@ function color(value: string): Color | null {
   return [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16) / 255) as Color;
 }
 
+// pdf.js reads text with `for await (… of readableStream)`; Safari up to 26.5 cannot iterate a
+// ReadableStream (TypeError: undefined is not a function), so add the iterator where it is missing.
+export function polyfillStreamIteration() {
+  const proto = globalThis.ReadableStream?.prototype;
+  if (!proto || Symbol.asyncIterator in proto) return;
+  Object.defineProperty(proto, Symbol.asyncIterator, { configurable: true, writable: true, value: async function* (this: ReadableStream) {
+    const reader = this.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        yield value;
+      }
+    } finally { reader.releaseLock(); }
+  } });
+}
+
 export async function readPdf(data: Uint8Array): Promise<PdfDoc> {
+  polyfillStreamIteration();
   // Vite emits the worker as a local asset; Node uses pdf.js's legacy fake worker.
   if (typeof window !== 'undefined') {
     GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
