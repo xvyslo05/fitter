@@ -114,7 +114,15 @@ export function PdfImport({ onClose }: { onClose: () => void }) {
       if (request.current !== id) return;
       const result = detectLayout(doc);
       setDoc(doc); setDetected(result); apply(result.layout);
-    } catch { if (request.current === id) setError('PDF se nepodařilo načíst. Vyberte platný, nešifrovaný soubor PDF.'); }
+    } catch (e) {
+      // Keep the technical cause visible: browser-specific failures are otherwise impossible to diagnose.
+      console.error('PDF import failed', e);
+      if (request.current !== id) return;
+      const name = e instanceof Error ? e.name : '';
+      setError(name === 'PasswordException' ? 'PDF je chráněné heslem. Otevřete ho bez hesla a uložte znovu.'
+        : name === 'InvalidPDFException' ? 'Soubor není platné PDF.'
+        : `PDF se nepodařilo načíst (${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}).`);
+    }
     finally { if (request.current === id) setBusy(false); }
   }
   function update(index: number, field: keyof BlockDraft, value: string) {
