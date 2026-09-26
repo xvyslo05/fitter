@@ -1,4 +1,4 @@
-import type { PageLayout, PagePlacement, PdfDoc, PdfPath } from './types';
+import type { PageLayout, PagePlacement, PdfDoc, PdfPath, PdfText } from './types';
 import { seamMatches, matchPages } from './match';
 
 export function validateLayout(doc: PdfDoc, layout: PageLayout): void {
@@ -62,4 +62,14 @@ export function assemblePaths(doc: PdfDoc, placements: PagePlacement[]): PdfPath
     });
   }
   return result;
+}
+
+export function assembleTexts(doc: PdfDoc, placements: PagePlacement[]): PdfText[] {
+  const pages = new Map(doc.pages.map(p => [p.index, p])), seen = new Set<string>();
+  return placements.flatMap(p => pages.get(p.page)!.texts.flatMap(t => {
+    const moved = { ...t, x: t.x + p.x, y: t.y + p.y };
+    const key = `${t.str}:${Math.round(moved.x * 2)}:${Math.round(moved.y * 2)}`;
+    if (seen.has(key)) return [];
+    seen.add(key); return [moved];
+  }));
 }

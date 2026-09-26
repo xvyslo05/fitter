@@ -1,3 +1,13 @@
+import type { PdfPath, Pt } from '../src/pdf/types';
+
+export function testPath(points: Pt[], options: Partial<PdfPath> = {}): PdfPath {
+  return { subpaths: [points], closed: [false], stroke: [0, 0, 0], fill: null, lineWidth: 1,
+    dash: [], dashPhase: 0, ctm: [1, 0, 0, 1], ...options };
+}
+export function squareRing(x: number, y: number, side: number): Pt[] {
+  return [[x, y], [x + side, y], [x + side, y + side], [x, y + side], [x, y]];
+}
+
 // Minimal uncompressed PDF writer: synthetic fixtures stay readable and need no binaries.
 export interface TestPage { content: string; width?: number; height?: number; dictionary?: string }
 export function pdfBytes(pages: TestPage[], resources = '', extraObjects: string[] = []): Uint8Array {
