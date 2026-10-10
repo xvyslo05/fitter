@@ -1293,10 +1293,13 @@ main {
 .pdf-block .field { margin-bottom:8px; }
 .pdf-block-actions { flex-wrap:wrap; }
 .pdf-preview { min-width:0; position:sticky; top:0; background:var(--surface); }
-.pdf-preview-heading label { display:flex; align-items:center; gap:8px; font-size:12px; }
-.pdf-preview-heading input { max-width:110px; }
-.pdf-canvas-scroll { max-height:65vh; overflow:auto; border:1px solid var(--border); background:var(--sheet); }
-.pdf-canvas-scroll canvas { display:block; height:auto; }
+.pdf-viewport { position:relative; overflow:hidden; width:100%; max-height:62vh; min-height:240px; border:1px solid var(--border); background:var(--sheet); touch-action:pan-x pan-y; }
+.pdf-viewport.zoomed { touch-action:none; }
+.pdf-viewport canvas { position:absolute; inset:0; display:block; width:100%; height:100%; cursor:grab; }
+.pdf-viewport.dragging canvas { cursor:grabbing; }
+.pdf-viewport:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
+.pdf-zoom { position:absolute; top:8px; right:8px; display:flex; gap:6px; }
+.pdf-zoom button { min-width:30px; min-height:30px; padding:2px 8px; font-size:13px; }
 .pdf-seam { display:inline-block; width:18px; border-top:2px solid var(--seam); margin:0 4px 3px 8px; }
 .pdf-seam.verified { border-color:var(--seam-ok); }
 .pdf-footer { border-top:1px solid var(--border); margin-top:24px; padding-top:18px; }
@@ -1321,8 +1324,9 @@ main {
 .pdf-legend th,.pdf-legend td,.pdf-candidates th,.pdf-candidates td { padding:8px; text-align:left; border-bottom:1px solid var(--border); }
 .pdf-legend thead,.pdf-candidates thead { position:sticky; top:0; background:var(--surface); }
 .pdf-legend td span { display:block; }
+.pdf-legend tr.highlighted td { background:var(--hover); }
 .pdf-legend input { width:80px; max-width:100%; }
-.pdf-legend svg { display:block; background:var(--paper); border-radius:3px; }
+.pdf-legend svg { display:block; background:var(--sheet); border-radius:3px; }
 .pdf-trace-settings { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 .pdf-trace-settings input { width:100%; }
 .pdf-candidates { font-variant-numeric:tabular-nums; }

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useId, useMemo, useRef, useState } from 'preact/hooks';
 import { detectLayout } from '../pdf/layout';
 import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/place';
 import { contentPages } from '../pdf/match';
-import { styleLegend } from '../pdf/styles';
+import { styleKeyOf, styleLegend } from '../pdf/styles';
 import { detectScale, overrideScale, CM_PER_PT } from '../pdf/scale';
 import { suggestPieces } from '../pdf/pieces';
 import type { PieceDraft } from '../pdf/pieces';
@@ -11,7 +11,7 @@ import { area, bbox } from '../geom/polygon';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
-import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
+import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, StyleEntry, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
 import { inlineTokens, sizeColor, useTheme } from '../theme';
 import { draftProblems, Pieces } from './PdfPieces';
 import { downloadPattern, Save } from './PdfSave';
@@ -41,8 +41,33 @@ export function closePdfImport(dialog: Pick<HTMLDialogElement, 'close'> | null, 
   focus?.focus();
 }
 
-function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null }) {
-  const canvas = useRef<HTMLCanvasElement>(null), [zoom, setZoom] = useState(1), theme = useTheme();
+export interface View { scale: number; x: number; y: number }
+// width/height: the padded sheet in pt, or the box in CSS px.
+export interface Size { width: number; height: number }
+export function scaleLimits(sheet: Size, box: Size): [number, number] {
+  const fit = Math.min(box.width / sheet.width, box.height / sheet.height);
+  return [fit, Math.max(fit * 4, 12)];
+}
+export function fitView(sheet: Size, box: Size): View {
+  const [scale] = scaleLimits(sheet, box);
+  return { scale, x: (box.width - sheet.width * scale) / 2, y: (box.height - sheet.height * scale) / 2 };
+}
+// Scale into range; a small axis is centred, a large one keeps covering the box.
+export function clampView(view: View, sheet: Size, box: Size): View {
+  const [min, max] = scaleLimits(sheet, box), scale = Math.min(max, Math.max(min, view.scale));
+  const axis = (pos: number, content: number, room: number) => content <= room ? (room - content) / 2 : Math.min(0, Math.max(room - content, pos));
+  return { scale, x: axis(view.x, sheet.width * scale, box.width), y: axis(view.y, sheet.height * scale, box.height) };
+}
+// at: CSS px inside the box. Keeps the sheet point under `at` fixed, then clamps.
+export function zoomView(view: View, factor: number, at: [number, number], sheet: Size, box: Size): View {
+  const [min, max] = scaleLimits(sheet, box), scale = Math.min(max, Math.max(min, view.scale * factor)), k = scale / view.scale;
+  return clampView({ scale, x: at[0] - (at[0] - view.x) * k, y: at[1] - (at[1] - view.y) * k }, sheet, box);
+}
+type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
+const EPS = 1e-6;
+
+function Preview({ doc, layout, sizesMode = false, result, highlight = null }: { doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null; highlight?: string | null }) {
+  const box = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), theme = useTheme(), hintId = `${useId()}-hint`;
   const sheet = useMemo(() => {
     const placed = placePages(doc, layout), paths = assemblePaths(doc, placed.placements);
     let minX = 0, minY = 0, maxX = 1, maxY = 1;
@@ -55,24 +80,58 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
     }
     return { ...placed, paths, minX: minX - 15, minY: minY - 15, width: maxX - minX + 30, height: maxY - minY + 30 };
   }, [doc, layout]);
-  useEffect(() => {
-    const node = canvas.current, ctx = node?.getContext('2d');
-    if (!node || !ctx) return;
+  // Paths grouped by line style, longest first; one Path2D per group is built lazily on first paint.
+  const groups = useMemo(() => {
+    const byKey = new Map<string, PdfPath[]>();
+    for (const path of sheet.paths) if (path.stroke || path.fill) { const key = styleKeyOf(path); let list = byKey.get(key); if (!list) byKey.set(key, list = []); list.push(path); }
+    return { list: styleLegend(sheet.paths).map(entry => ({ entry, paths: byKey.get(entry.key)! })), built: new Map<string, Path2D>() };
+  }, [sheet]);
+  const view = useRef<View>({ scale: 0, x: 0, y: 0 }), fitted = useRef(true), frame = useRef(0), paintRef = useRef(() => {});
+  const pointers = useRef(new Map<number, { x: number; y: number; touch: boolean }>()), pinch = useRef({ x: 0, y: 0, d: 0 });
+  const sheetSize = useRef<Size>(sheet); sheetSize.current = sheet;
+  const [atFit, setAtFit] = useState(true), [atMax, setAtMax] = useState(false), [dragging, setDragging] = useState(false);
+  const boxSize = (): Size => ({ width: box.current?.clientWidth ?? 0, height: box.current?.clientHeight ?? 0 });
+  const schedule = () => { if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; paintRef.current(); }); };
+  const apply = (next: View) => {
+    const [min, max] = scaleLimits(sheetSize.current, boxSize());
+    view.current = next; fitted.current = next.scale <= min * (1 + EPS);
+    setAtFit(fitted.current); setAtMax(next.scale >= max * (1 - EPS)); schedule();
+  };
+  const zoomAt = (factor: number, at: [number, number]) => apply(zoomView(view.current, factor, at, sheetSize.current, boxSize()));
+  const panBy = (dx: number, dy: number) => apply(clampView({ ...view.current, x: view.current.x + dx, y: view.current.y + dy }, sheetSize.current, boxSize()));
+  const refit = () => apply(fitView(sheetSize.current, boxSize()));
+  const local = (e: { clientX: number; clientY: number }): [number, number] => { const r = box.current!.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const centre = (): [number, number] => { const b = boxSize(); return [b.width / 2, b.height / 2]; };
+  const actions = useRef({ zoomAt, panBy, local, apply, boxSize, schedule }); actions.current = { zoomAt, panBy, local, apply, boxSize, schedule };
+
+  paintRef.current = () => {
+    const node = canvas.current, ctx = node?.getContext('2d'), size = boxSize(), v = view.current;
+    if (!node || !ctx || !size.width || !size.height || !v.scale) return;
+    const dpr = window.devicePixelRatio || 1, w = Math.round(size.width * dpr), h = Math.round(size.height * dpr);
+    if (node.width !== w || node.height !== h) { node.width = w; node.height = h; }
     // Canvas colours: the palette tokens on screen, read again when the theme changes.
-    const style = getComputedStyle(node), token = (name: string) => style.getPropertyValue(name).trim();
-    const scale = Math.min(1800 * zoom / sheet.width, 3600 / sheet.height, 4096 / sheet.width);
-    node.width = Math.ceil(sheet.width * scale); node.height = Math.ceil(sheet.height * scale);
-    ctx.fillStyle = token('--sheet'); ctx.fillRect(0, 0, node.width, node.height);
-    ctx.scale(scale, scale); ctx.translate(-sheet.minX, -sheet.minY);
-    ctx.lineWidth = 0.65 / scale;
-    for (const path of sheet.paths) {
-      const color = path.stroke ?? path.fill;
-      if (!color) continue;
-      ctx.strokeStyle = sizesMode ? token('--sheet-line') : inkColor(color, theme === 'dark');
-      ctx.beginPath();
-      tracePreviewPath(ctx, path);
-      ctx.stroke();
+    const style = getComputedStyle(node), token = (name: string) => style.getPropertyValue(name).trim(), dark = theme === 'dark';
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = token('--sheet'); ctx.fillRect(0, 0, w, h);
+    ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * (v.x - sheet.minX * v.scale), dpr * (v.y - sheet.minY * v.scale));
+    const scale = v.scale;
+    ctx.lineJoin = ctx.lineCap = 'round';
+    const draw = (g: (typeof groups.list)[number], color: string, width: number, dash: number[]) => {
+      let p = groups.built.get(g.entry.key);
+      if (!p) { p = new Path2D(); for (const path of g.paths) tracePreviewPath(p, path); groups.built.set(g.entry.key, p); }
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.stroke(p);
+    };
+    const dashOf = (e: StyleEntry) => e.kind === 'stroke' && e.dash.reduce((a, b) => a + b, 0) > 0 ? e.dash : [];
+    const marked = sizesMode ? groups.list.find(g => g.entry.key === highlight) : undefined;
+    if (marked) {
+      for (const g of groups.list) if (g !== marked) draw(g, token('--sheet-line'), Math.max(1 / scale, g.entry.width), dashOf(g.entry));
+      ctx.globalAlpha = 0.35; draw(marked, token('--focus'), 8 / scale, []); ctx.globalAlpha = 1;
+      draw(marked, inkColor(marked.entry.color, dark), Math.max(2.5 / scale, marked.entry.width), dashOf(marked.entry));
+      ctx.setLineDash([]);
+      return;
     }
+    ctx.globalAlpha = sizesMode && result ? 0.35 : 1;
+    for (const g of groups.list) draw(g, inkColor(g.entry.color, dark), Math.max(1 / scale, g.entry.width), dashOf(g.entry));
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
     if (sizesMode) {
       if (result) for (const candidate of result.candidates) {
         for (const [size, ring] of Object.entries(candidate.sizes)) {
@@ -108,19 +167,109 @@ function Preview({ doc, layout, sizesMode = false, result }: { doc: PdfDoc; layo
       }
       ctx.stroke();
     }
-  }, [doc, sheet, zoom, sizesMode, result, theme]);
+  };
+  useEffect(() => { refit(); }, [sheet]);
+  useEffect(() => { const a = document.activeElement; if (a instanceof HTMLButtonElement && a.disabled && box.current?.contains(a)) box.current.focus(); }, [atFit, atMax]);
+  useEffect(() => { schedule(); }, [doc, sheet, groups, sizesMode, result, theme, highlight]);
+  useEffect(() => {
+    const node = box.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      const size = actions.current.boxSize();
+      if (!size.width || !size.height) return;
+      actions.current.apply(fitted.current ? fitView(sheetSize.current, size) : clampView(view.current, sheetSize.current, size));
+    });
+    observer.observe(node);
+    // Normalise wheel deltas to px.
+    const px = (e: WheelEvent, d: number) => d * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? actions.current.boxSize().height : 1);
+    const wheel = (e: WheelEvent) => {
+      const a = actions.current;
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); a.zoomAt(Math.min(2, Math.max(0.5, Math.exp(-px(e, e.deltaY) * 0.01))), a.local(e)); }
+      else if (!fitted.current) {
+        const v = view.current, next = clampView({ ...v, x: v.x - px(e, e.deltaX), y: v.y - px(e, e.deltaY) }, sheetSize.current, a.boxSize());
+        if (Math.abs(next.x - v.x) > 0.5 || Math.abs(next.y - v.y) > 0.5) { e.preventDefault(); a.apply(next); }
+      }
+    };
+    // Safari trackpad pinch; touch pinch is handled by the pointer events.
+    let start = 1;
+    const gesture = (e: Event) => {
+      e.preventDefault();
+      if ([...pointers.current.values()].some(p => p.touch)) return;
+      const a = actions.current, g = e as GestureEvent;
+      if (e.type === 'gesturestart') start = view.current.scale;
+      else if (e.type === 'gesturechange') a.zoomAt(start * g.scale / view.current.scale, a.local(g));
+    };
+    node.addEventListener('wheel', wheel, { passive: false });
+    const names = ['gesturestart', 'gesturechange', 'gestureend'];
+    names.forEach(n => node.addEventListener(n, gesture, { passive: false }));
+    return () => {
+      observer.disconnect(); node.removeEventListener('wheel', wheel);
+      names.forEach(n => node.removeEventListener(n, gesture)); cancelAnimationFrame(frame.current); frame.current = 0;
+    };
+  }, []);
+
+  const rebase = () => {
+    const [a, b] = [...pointers.current.values()];
+    pinch.current = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
+  const down = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const [x, y] = local(e);
+    pointers.current.set(e.pointerId, { x, y, touch: e.pointerType === 'touch' });
+    if (pointers.current.size === 2) rebase();
+    setDragging(true);
+  };
+  const move = (e: PointerEvent) => {
+    const p = pointers.current.get(e.pointerId);
+    if (!p) return;
+    const [x, y] = local(e), dx = x - p.x, dy = y - p.y;
+    p.x = x; p.y = y;
+    if (pointers.current.size === 1) panBy(dx, dy);
+    else if (pointers.current.size === 2) {
+      const last = pinch.current, [a, b] = [...pointers.current.values()], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
+      const zoomed = zoomView(view.current, last.d > 0 ? d / last.d : 1, [last.x, last.y], sheet, boxSize());
+      apply(clampView({ ...zoomed, x: zoomed.x + mx - last.x, y: zoomed.y + my - last.y }, sheet, boxSize()));
+      pinch.current = { x: mx, y: my, d };
+    }
+  };
+  const up = (e: PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size === 2) rebase();
+    if (!pointers.current.size) setDragging(false);
+  };
+  const key = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const b = boxSize(), step = { ArrowLeft: [b.width * 0.1, 0], ArrowRight: [-b.width * 0.1, 0], ArrowUp: [0, b.height * 0.1], ArrowDown: [0, -b.height * 0.1] }[e.key];
+    if (e.key === '+' || e.key === '=') zoomAt(1.5, centre());
+    else if (e.key === '-') zoomAt(1 / 1.5, centre());
+    else if (e.key === '0') refit();
+    else if (step) panBy(step[0], step[1]);
+    else return;
+    e.preventDefault();
+  };
   return <div class="pdf-preview">
-    <div class="pdf-preview-heading"><h3>Složený arch</h3><label>Zvětšení <input aria-label="Zvětšení náhledu" type="range" min="1" max="4" step="0.5" value={zoom} onInput={e => setZoom(Number(e.currentTarget.value))} /></label></div>
+    <div class="pdf-preview-heading"><h3>Složený arch</h3></div>
+    <p id={hintId} class="small muted">Přibližujte gestem, Ctrl + kolečkem, dvojklikem nebo tlačítky. Přiblížený arch posunete tažením nebo kolečkem.</p>
     {sizesMode ? <p class="pdf-size-colors">{result?.sizes.map((size, i) => <span key={size} style={{ color: sizeColor(i) }}>● {size}</span>)}</p>
       : <p class="small muted"><span class="pdf-seam verified" /> Shodný obsah <span class="pdf-seam" /> Neověřený spoj · {sheet.placements.length} stránek</p>}
-    <div class="pdf-canvas-scroll"><canvas ref={canvas} style={{ width: `${zoom * 100}%` }} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} kandidátů` : `Složený arch: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`} /></div>
+    <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label="Náhled archu" aria-describedby={hintId} onKeyDown={key}>
+      <canvas ref={canvas} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} kandidátů` : `Složený arch: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDblClick={e => zoomAt(2, local(e))} />
+      <div class="pdf-zoom">
+        <button type="button" class="secondary" aria-label="Přiblížit" disabled={atMax} onClick={() => zoomAt(1.5, centre())}>+</button>
+        <button type="button" class="secondary" aria-label="Oddálit" disabled={atFit} onClick={() => zoomAt(1 / 1.5, centre())}>−</button>
+        <button type="button" class="secondary" disabled={atFit} onClick={refit}>Celý arch</button>
+      </div>
+    </div>
   </div>;
 }
 
 function Sizes({ doc, layout, sheet, active, result, onResult }: {
   doc: PdfDoc; layout: PageLayout; sheet: Sheet; active: boolean; result: TraceResult | null; onResult: (value: TraceResult | null) => void;
 }) {
-  const legend = useMemo(() => styleLegend(sheet.paths), [sheet]);
+  const legend = useMemo(() => styleLegend(sheet.paths), [sheet]), theme = useTheme();
+  const [hovered, setHovered] = useState<string | null>(null), [focused, setFocused] = useState<string | null>(null);
   const detected = useMemo(() => detectScale(doc), [doc]);
   const [assignments, setAssignments] = useState<Record<string, string>>({}), [suggesting, setSuggesting] = useState(false);
   const [squareCm, setSquareCm] = useState(''), [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
@@ -180,14 +329,14 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti.</p>
+    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najeďte na řádek nebo klikněte do pole a styl se zvýrazní v náhledu.</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
-      <tbody>{legend.map((entry, i) => <tr key={entry.key}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
-        {entry.kind === 'fill' ? <rect x="4" y="11" width="88" height="2" fill={`rgb(${entry.color.map(n => n * 255).join(',')})`} />
-          : <line x1="4" y1="12" x2="92" y2="12" stroke={`rgb(${entry.color.map(n => n * 255).join(',')})`} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
+      <tbody>{legend.map((entry, i) => <tr key={entry.key} class={(hovered ?? focused) === entry.key ? 'highlighted' : undefined} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
+        {entry.kind === 'fill' ? <rect x="4" y="11" width="88" height="2" fill={inkColor(entry.color, theme === 'dark')} />
+          : <line x1="4" y1="12" x2="92" y2="12" stroke={inkColor(entry.color, theme === 'dark')} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
       </svg><span class="small muted">{entry.kind === 'fill' ? 'Výplň' : `${entry.width.toFixed(2)} pt`}</span></td>
         <td>{entry.paths}<span class="small muted">{(entry.lengthPt * cmPerPt).toFixed(1)} cm</span></td>
-        <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={40} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
+        <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={40} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
     <h3>Měřítko</h3>
     <p class="small">{detected.source === 'square' ? `Kontrolní čtverec na stránce ${detected.page}: ${detected.measuredPt!.toFixed(2)} pt → ${detected.squareCm} cm (střed čáry).`
       : 'Kontrolní čtverec nenalezen. Používám 100 % (2,54 / 72 cm na pt).'}</p>
@@ -202,7 +351,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>
-  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} />
+  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={hovered ?? focused} />
     {result && <section><h3>Kandidáti dílů</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
       <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Díl</th><th>Velikost</th><th>Plocha (cm²)</th><th>Šířka × výška (cm)</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {
@@ -217,6 +366,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
   const [doc, setDoc] = useState<PdfDoc | null>(null), [name, setName] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [stage, setStage] = useState(1), [traced, setTraced] = useState<TraceResult | null>(null);
+  useEffect(() => { dialog.current?.scrollTo({ top: 0 }); }, [stage]);
   const [detected, setDetected] = useState<ReturnType<typeof detectLayout> | null>(null);
   const [blocks, setBlocks] = useState<BlockDraft[]>([]), [step, setStep] = useState(['', '']);
   // Piece drafts belong to one trace result (key); `suggested` backs "Podle čáry".
