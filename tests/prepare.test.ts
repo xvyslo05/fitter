@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { demo } from '../src/model/demo';
-import { checkInputs, chooseVariant, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
+import { checkInputs, chooseVariant, defaultFabric, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece } from './fixtures';
@@ -168,5 +168,23 @@ describe('prepare', () => {
     expect(output.materials['__proto__'][0].rotation).toBe('180');
     expect(bbox(output.materials['__proto__'][0].polygon).width).toBeCloseTo(9);
     expect(() => prepare([pattern], [line], {}, { ...settings, seamAmount: NaN })).toThrow(/záložka/);
+  });
+  it('directional fabric forces rotation none for its material only, overriding defaults and overrides', () => {
+    const { pattern, line, settings } = setup(); settings.rotation = '90';
+    line.rotations = { handle: '180' };
+    const output = prepare([pattern], [line], { 'Vnější látka': { ...fabric, directional: true } }, settings);
+    expect(output.materials['Vnější látka'].length).toBeGreaterThan(0);
+    for (const p of output.materials['Vnější látka']) expect(p.rotation).toBe('none');
+    expect(output.materials['Podšívka'].length).toBeGreaterThan(0);
+    for (const p of output.materials['Podšívka']) expect(p.rotation).toBe('90');
+  });
+  it('directional fabric keeps mirrored pairs', () => {
+    const { pattern, line, settings } = setup(); settings.mirroredPairs = true;
+    pattern.pieces = [asymmetricPiece(2)];
+    const output = prepare([pattern], [line], { 'Vnější látka': { ...fabric, directional: true } }, settings);
+    expect(output.mirroredKeys.length).toBeGreaterThan(0);
+  });
+  it('default fabric is 140 cm, unfolded and not directional', () => {
+    expect(defaultFabric()).toEqual({ width: 140, length: null, folded: false, directional: false });
   });
 });

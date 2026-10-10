@@ -869,9 +869,7 @@ main {
   margin:-10px 22px 14px;
   font-size:10px;
 }
-.canvas-scroll {
-  overflow:auto;
-  max-height:650px;
+.layout-canvas {
   padding:20px 12px 12px;
   background:var(--well);
   border-top:1px solid var(--border);
@@ -1229,9 +1227,8 @@ main {
   .stats>div+div {
     padding-left:8px;
   }
-  .canvas-scroll {
+  .layout-canvas {
     padding:14px 8px 8px;
-    max-height:530px;
   }
   .drawing-footer {
     padding:10px 16px;

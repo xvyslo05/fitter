@@ -20,7 +20,7 @@ export const defaultSettings: Settings = {
   seamAmount: 1, gap: 0.5, resolution: 0.5, timeMs: 5000, seed: 42,
   mirroredPairs: true, rotation: '180', addSeam: {},
 };
-export const defaultFabric = (): Fabric => ({ width: 150, length: null, folded: false });
+export const defaultFabric = (): Fabric => ({ width: 140, length: null, folded: false, directional: false });
 export const own = <T>(values: Record<string, T>, key: string): T | undefined => Object.hasOwn(values, key) ? values[key] : undefined;
 export function makeOrder(pattern: PatternFile, id: string = crypto.randomUUID()): OrderLine {
   return { id, patternId: pattern.id, size: pattern.sizes[0], quantity: 1, include: {}, rotations: {} };
@@ -127,7 +127,7 @@ export function prepare(
           materials[material].push({
             key, label: `${pattern.name} · ${piece.name} · ${line.size} #${i + 1}`,
             polygon: mirrored ? mirrorX(polygon) : polygon,
-            rotation: own(line.rotations, piece.id) ?? settings.rotation,
+            rotation: fabric.directional ? 'none' : own(line.rotations, piece.id) ?? settings.rotation,
             foldEdge: keepFold,
           });
         }

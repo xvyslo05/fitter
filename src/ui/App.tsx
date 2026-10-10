@@ -169,6 +169,8 @@ export function App() {
                     {fabric.length !== null && <NumberField label={`Délka · ${material}`} min={1} max={10000} value={fabric.length} onChange={length => updateFabric(material, { ...fabric, length })} />}</div>
                   <label class="check"><input type="checkbox" checked={fabric.folded} onChange={e => updateFabric(material, { ...fabric, folded: e.currentTarget.checked })} />Složená napůl</label>
                   {fabric.folded && <p class="small muted">Využitelná šířka {(fabric.width / 2).toLocaleString('cs')} cm, lom vlevo. Díl mimo lom se stříhá ve dvou vrstvách.</p>}
+                  <label class="check"><input type="checkbox" checked={fabric.directional === true} onChange={e => updateFabric(material, { ...fabric, directional: e.currentTarget.checked })} />Zachovat směr (vlas, jednosměrný vzor)</label>
+                  {fabric.directional && <p class="small muted">Díly se neotáčejí ani nepřeklápějí. Přebíjí výchozí otáčení i otáčení dílů; zrcadlové páry zůstávají.</p>}
                 </div>;
               })}
             </section>

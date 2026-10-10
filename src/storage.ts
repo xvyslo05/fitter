@@ -38,7 +38,7 @@ export function loadWorkspace(): Workspace | null {
     }
     const fabrics: Record<string, Fabric> = Object.fromEntries(Object.entries(raw.fabrics).flatMap(([key, f]) => {
       if (!record(f) || !numeric(f.width, 0.1, 1000) || (f.length !== null && !numeric(f.length, 0.1, 10000))) return [];
-      return [[key, { width: f.width, length: f.length, folded: f.folded === true }]];
+      return [[key, { width: f.width, length: f.length, folded: f.folded === true, directional: f.directional === true }]];
     }));
     const s = raw.settings, settings = { ...defaultSettings, addSeam: booleanMap(s.addSeam) };
     if (numeric(s.seamAmount, 0, 10)) settings.seamAmount = s.seamAmount;

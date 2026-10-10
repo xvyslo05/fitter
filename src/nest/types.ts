@@ -8,7 +8,8 @@ export interface NestPiece {
   rotation: Rotation;
   foldEdge?: boolean;
 }
-export interface Fabric { width: number; length: number | null; folded: boolean }
+// Directional fabric (nap, one-way print): pieces keep one direction, never rotated or flipped.
+export interface Fabric { width: number; length: number | null; folded: boolean; directional?: boolean }
 export interface NestOptions { gap: number; resolution: number; timeMs: number; seed: number }
 export interface Placement {
   key: string;

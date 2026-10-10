@@ -68,7 +68,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       <div><dt>Spotřebovaná délka</dt><dd>{cm(result.usedLength)} <small>cm</small></dd></div>
       <div><dt>Využití</dt><dd>{cm(result.utilization * 100)} <small>%</small></dd></div></dl>
     {fabric.folded && <p class="small muted result-note">Šířka před složením: {cm(fabric.width)} cm. Na obrázku je využitelná polovina.</p>}
-    <div class="canvas-scroll">
+    <div class="layout-canvas">
       <svg ref={ref} xmlns="http://www.w3.org/2000/svg" class="layout-svg" role="img" aria-label={`Rozložení dílů na materiálu ${material}`}
         viewBox={`-17 -14 ${width + 23} ${displayLength + 20}`} width={`${width + 23}cm`} height={`${displayLength + 20}cm`}
         onPointerMove={track} onPointerDown={track} onPointerLeave={() => { setPointer(null); setActive(null); }}>

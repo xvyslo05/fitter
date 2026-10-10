@@ -9,10 +9,14 @@ describe('workspace persistence', () => {
     const items = new Map<string, string>();
     vi.stubGlobal('localStorage', { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => items.set(key, value) });
     const workspace = { order: [{ ...makeOrder(demo, 'saved-order'), quantity: 2, include: { tab: true }, rotations: { tab: 'none' as const } }],
-      fabrics: { canvas: { width: 140, length: 80, folded: true } }, settings: structuredClone(defaultSettings) };
+      fabrics: { canvas: { width: 140, length: 80, folded: true, directional: true } }, settings: structuredClone(defaultSettings) };
     workspace.settings.mirroredPairs = false;
     expect(saveWorkspace(workspace)).toBe(true);
     expect(loadWorkspace()).toEqual(workspace);
+  });
+  it('loads a stored fabric without directional as false', () => {
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ version: 1, order: [], fabrics: { canvas: { width: 140, length: null, folded: false } }, settings: defaultSettings }) });
+    expect(loadWorkspace()?.fabrics.canvas).toEqual({ width: 140, length: null, folded: false, directional: false });
   });
   it('handles blocked storage and corrupt or obsolete state without crashing', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } });
