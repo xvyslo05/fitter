@@ -1,8 +1,18 @@
-import { useRef, useState } from 'preact/hooks';
+import { useId, useRef, useState } from 'preact/hooks';
 import { bbox } from '../geom/polygon';
 import type { Pt } from '../model/pattern';
-import type { Fabric, NestPiece, NestResult } from '../nest/types';
+import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
 import { exportPNG, exportSVG } from './export';
+
+// A placed piece against its paper pattern. flipY (a fold piece turned over along the fold) is a
+// mirror plus a half turn, so it cancels a mirrored pair copy.
+export function orientation(mirroredPair: boolean, placement: Pick<Placement, 'angle' | 'flipY'>): { mirrored: boolean; turn: number } {
+  return { mirrored: mirroredPair !== placement.flipY, turn: (placement.angle + (placement.flipY ? 180 : 0)) % 360 };
+}
+export function orientationText({ mirrored, turn }: { mirrored: boolean; turn: number }, layers: 'single' | 'folded' | 'fold'): string {
+  const base = `${mirrored ? 'Zrcadlově proti střihu' : 'Jako ve střihu'}${turn ? `, otočeno o ${turn}°` : ''}`;
+  return layers === 'folded' ? `${base} · spodní vrstva dá zrcadlový díl` : layers === 'fold' ? `${base} · na lomu` : base;
+}
 
 // Colours are palette tokens (styles.css); exports replace them with the light values.
 const colors = Array.from({ length: 6 }, (_, i) => `var(--piece-${i + 1})`);
@@ -51,6 +61,8 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
   const width = fabric.width / (fabric.folded ? 2 : 1), length = fabric.length ?? result.usedLength;
   const displayLength = Math.max(length, 1), pieceMap = new Map(pieces.map((p, i) => [p.key, { ...p, color: colors[i % colors.length] }]));
   const edges = new Map(result.placements.map(p => [p.key, bbox(p.polygon)]));
+  const mirroredSet = new Set(mirroredKeys), turned = new Map(result.placements.map(p => [p.key, orientation(mirroredSet.has(p.key), p)]));
+  const layers = (p: NestPiece) => p.foldEdge ? 'fold' : fabric.folded ? 'folded' : 'single', hatch = `mirror-${useId()}`;
   const xMarks = breakpoints([...edges.values()].flatMap(b => [b.minX, b.maxX]), 4.5);
   const yMarks = breakpoints([...edges.values()].flatMap(b => [b.minY, b.maxY]), 2.4);
   const hot = active ? edges.get(active) : undefined;
@@ -72,7 +84,9 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       <svg ref={ref} xmlns="http://www.w3.org/2000/svg" class="layout-svg" role="img" aria-label={`Rozložení dílů na materiálu ${material}`}
         viewBox={`-17 -14 ${width + 23} ${displayLength + 20}`} width={`${width + 23}cm`} height={`${displayLength + 20}cm`}
         onPointerMove={track} onPointerDown={track} onPointerLeave={() => { setPointer(null); setActive(null); }}>
-        <desc>{`${material} · rozložení střihů. Rozměr ${cm(width)} × ${cm(length)} cm. Využití ${cm(result.utilization * 100)} %. Šipky ukazují směr vlákna, ↔ zrcadlení.`}</desc>
+        <desc>{`${material} · rozložení střihů. Rozměr ${cm(width)} × ${cm(length)} cm. Využití ${cm(result.utilization * 100)} %. Šipky ukazují směr vlákna; šrafované díly s ↔ jsou zrcadlově proti střihu.`}</desc>
+        <defs><pattern id={hatch} width="1.6" height="1.6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="1.6" style="stroke:var(--ink)" stroke-width="0.35" /></pattern></defs>
         <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} style="fill:var(--fabric)" />
         <g font-family="system-ui, sans-serif" font-size="2.3" style="fill:var(--muted);stroke:var(--fabric-grid)" stroke-width="0.16">
           {ticks(width).map(x => <g key={`x${x}`}><line x1={x} x2={x} y1={-3} y2={displayLength} stroke-dasharray="0.5 1" />
@@ -90,17 +104,18 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
           const fullLabel = p.label.split(' · ').slice(1).join(' · ');
           const shortLabel = fullLabel.length > maxChars ? fullLabel.slice(0, maxChars - 1) + '…' : fullLabel;
           const arrow = Math.min(5, Math.min(b.height, b.width) * 0.22);
-          const mirrored = mirroredKeys.includes(p.key) || placement.flipY;
+          const o = turned.get(p.key)!, points = placement.polygon.map(v => v.join(',')).join(' ');
           return <g key={p.key} onPointerEnter={() => setActive(p.key)} onPointerLeave={() => setActive(k => k === p.key ? null : k)}>
-            <desc>{p.label}{mirrored ? ' · zrcadleno' : ''}{p.foldEdge ? ' · na lomu' : ''}</desc>
-            <polygon points={placement.polygon.map(v => v.join(',')).join(' ')} style={{ fill: p.color, stroke: active === p.key ? MARK : 'var(--ink)' }}
+            <desc>{p.label} · {orientationText(o, layers(p))}</desc>
+            <polygon points={points} style={{ fill: p.color, stroke: active === p.key ? MARK : 'var(--ink)' }}
               stroke-width={active === p.key ? 0.45 : 0.22} stroke-linejoin="round" />
+            {o.mirrored && <polygon points={points} fill={`url(#${hatch})`} opacity="0.35" pointer-events="none" />}
             <g transform={`translate(${cx} ${cy})`} style="fill:var(--text)" font-family="system-ui, sans-serif" font-size={fontSize} text-anchor="middle">
               <text y={-fontSize}>{shortLabel}</text>
               <g transform={`rotate(${placement.angle + (placement.flipY ? 180 : 0)})`} style="stroke:var(--ink)" stroke-width="0.25" fill="none">
                 <path d={`M0,0 L0,${arrow} M-0.8,${arrow - 1} L0,${arrow} L0.8,${arrow - 1}`} />
               </g>
-              {mirrored && <text x={fontSize * 1.6} y={fontSize * 1.8}>↔</text>}
+              {o.mirrored && <text x={fontSize * 1.7} y={fontSize * 1.9} font-size={fontSize * 1.4} font-weight="700">↔</text>}
             </g>
             {p.foldEdge && <line x1={0} x2={0} y1={b.minY} y2={b.maxY} style={{ stroke: MARK }} stroke-width="0.65" />}
           </g>;
@@ -137,6 +152,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       {pointer && <div class={`layout-tip ${pointer.cx > window.innerWidth - 300 ? 'flip' : ''}`} style={{ left: `${pointer.cx}px`, top: `${pointer.cy}px` }} aria-hidden="true">
         {hot && active && <>
           <strong>{pieceMap.get(active)?.label.split(' · ').slice(1).join(' · ')}</strong>
+          {turned.has(active) && pieceMap.has(active) && <span class={turned.get(active)!.mirrored ? 'tip-mirrored' : undefined}>{orientationText(turned.get(active)!, layers(pieceMap.get(active)!))}</span>}
           <span>Díl {cm(hot.width)} × {cm(hot.height)} cm</span>
           <span>{fromLeft} {cm(hot.minX)} · {fromRight} {cm(width - hot.maxX)} · shora {cm(hot.minY)}
             {fabric.length !== null && ` · zdola ${cm(length - hot.maxY)}`} cm</span>
@@ -144,7 +160,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         <span class="tip-point">Bod: {fromLeft} {cm(pointer.x)} · {fromRight} {cm(width - pointer.x)} · shora {cm(pointer.y)} cm</span>
       </div>}
     </div>
-    <div class="drawing-footer"><span>↓ Směr vlákna <span class="legend-gap">↔ Zrcadlení</span></span><span>{result.iterations.toLocaleString('cs')} průchodů</span></div>
+    <div class="drawing-footer"><span>↓ Směr vlákna <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ Zrcadlově proti střihu</span></span><span>{result.iterations.toLocaleString('cs')} průchodů</span></div>
     {result.unplaced.length > 0 && <div class="unplaced"><h4>Nevešlo se ({result.unplaced.length})</h4><ul>{result.unplaced.map(key => <li key={key}>{pieceMap.get(key)?.label ?? key}</li>)}</ul></div>}
     <div class="export-actions"><span class="muted small">Stáhnout rozložení</span><button type="button" class="secondary" onClick={() => ref.current && exportSVG(ref.current, material)}>Export SVG</button>
       <button type="button" class="secondary" disabled={exporting} onClick={async () => {

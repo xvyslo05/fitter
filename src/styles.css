@@ -895,6 +895,7 @@ main {
 .layout-tip.flip { transform:translate(calc(-100% - 14px), 14px); }
 .layout-tip strong { font-size:12.5px; }
 .layout-tip .tip-point { color:var(--muted); }
+.layout-tip .tip-mirrored { color:var(--mark); font-weight:600; }
 .layout-svg {
   display:block;
   width:100%;
@@ -913,6 +914,16 @@ main {
 }
 .legend-gap {
   margin-left:10px;
+}
+.mirror-swatch {
+  display:inline-block;
+  width:14px;
+  height:10px;
+  margin-right:4px;
+  vertical-align:-1px;
+  border:1px solid var(--ink);
+  background:repeating-linear-gradient(45deg, transparent 0 2px, var(--ink) 2px 3px);
+  opacity:.6;
 }
 .export-actions {
   border-top:1px solid var(--divider);
