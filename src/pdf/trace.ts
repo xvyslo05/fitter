@@ -190,10 +190,53 @@ export function sizeRole(value: string | undefined): 'named' | 'shared' | 'none'
   return tokens.some(t => !isAll(t)) ? 'named' : tokens.length ? 'shared' : 'none';
 }
 
+// Lettering converted to curves (no text layer) shares the cutting lines' style. Each glyph is a fill
+// of one or two small subpaths (outline, counter); four or more glyphs with curves or corners (> 6 points)
+// of one colour, closer to each other than 0.8 × their size, form lettering. Simple glyphs (i, l, dots,
+// hyphens) go with it when they lie inside its bounds. Dashed lines (one fill, many dash subpaths),
+// marks elsewhere and strokes stay.
+export function withoutLettering(paths: PdfPath[]): PdfPath[] {
+  const boxes = paths.map(path => {
+    if (!path.fill || path.stroke || path.subpaths.length > 2) return undefined;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const points of path.subpaths) for (const [x, y] of points) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
+    const size = Math.max(maxX - minX, maxY - minY);
+    return size < 20 ? { minX, minY, maxX, maxY, size, color: path.fill.join(), complex: path.subpaths.some(points => points.length > 6) } : undefined;
+  });
+  const cell = 20, grid = new Map<string, number[]>(), parent = paths.map((_, i) => i);
+  const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]));
+  boxes.forEach((b, i) => {
+    if (!b?.complex) return;
+    for (let cx = Math.floor(b.minX / cell) - 1; cx <= Math.floor(b.maxX / cell) + 1; cx++) for (let cy = Math.floor(b.minY / cell) - 1; cy <= Math.floor(b.maxY / cell) + 1; cy++) {
+      for (const j of grid.get(`${cx}:${cy}`) ?? []) {
+        const a = boxes[j]!, gap = Math.hypot(Math.max(0, a.minX - b.maxX, b.minX - a.maxX), Math.max(0, a.minY - b.maxY, b.minY - a.maxY));
+        if (a.color === b.color && gap <= 0.8 * Math.max(a.size, b.size)) parent[find(i)] = find(j);
+      }
+    }
+    const key = `${Math.floor(b.minX / cell)}:${Math.floor(b.minY / cell)}`, list = grid.get(key) ?? [];
+    list.push(i); grid.set(key, list);
+  });
+  const clusters = new Map<number, { members: number; color: string; minX: number; minY: number; maxX: number; maxY: number }>();
+  boxes.forEach((b, i) => {
+    if (!b?.complex) return;
+    const c = clusters.get(find(i));
+    if (c) { c.members++; c.minX = Math.min(c.minX, b.minX); c.minY = Math.min(c.minY, b.minY); c.maxX = Math.max(c.maxX, b.maxX); c.maxY = Math.max(c.maxY, b.maxY); }
+    else clusters.set(find(i), { members: 1, color: b.color, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY });
+  });
+  const lettering = [...clusters.values()].filter(c => c.members >= 4);
+  return paths.filter((_, i) => {
+    const b = boxes[i];
+    if (!b) return true;
+    if (b.complex) return clusters.get(find(i))!.members < 4;
+    const x = (b.minX + b.maxX) / 2, y = (b.minY + b.maxY) / 2;
+    return !lettering.some(c => c.color === b.color && x >= c.minX - 2 && x <= c.maxX + 2 && y >= c.minY - 2 && y <= c.maxY + 2);
+  });
+}
+
 export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest): TraceResult {
   const named = [...new Set(Object.values(assignments).flatMap(v => sizeTokens(v).filter(t => !isAll(t))))];
   const selected = new Map<string, PdfPath[]>();
-  for (const path of excludeScaleMarks ? withoutScaleMarks(paths, texts, scale) : paths) {
+  for (const path of withoutLettering(excludeScaleMarks ? withoutScaleMarks(paths, texts, scale) : paths)) {
     for (const size of assignedSizes(assignments[styleKeyOf(path)], named)) {
       const group = selected.get(size) ?? []; group.push(path); selected.set(size, group);
     }

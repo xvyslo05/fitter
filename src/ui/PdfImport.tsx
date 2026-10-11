@@ -3,7 +3,7 @@ import { detectLayout } from '../pdf/layout';
 import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/place';
 import { contentPages } from '../pdf/match';
 import { styleKeyOf, styleLegend } from '../pdf/styles';
-import { sizeRole } from '../pdf/trace';
+import { sizeRole, withoutLettering } from '../pdf/trace';
 import { detectScale, overrideScale, CM_PER_PT } from '../pdf/scale';
 import { suggestPieces } from '../pdf/pieces';
 import type { PieceDraft } from '../pdf/pieces';
@@ -88,8 +88,8 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null, com
     const byKey = new Map<string, PdfPath[]>(), traced = new Map<string, PdfPath[]>();
     const add = (map: Map<string, PdfPath[]>, path: PdfPath) => { const key = styleKeyOf(path); let list = map.get(key); if (!list) map.set(key, list = []); list.push(path); };
     for (const path of sheet.paths) if (path.stroke || path.fill) add(byKey, path);
-    // Step 2 highlights what is traced: the furniture-free paths, without page frames of the same style.
-    if (sizesMode) for (const path of assemblePaths(contentPages(doc), sheet.placements)) if (path.stroke || path.fill) add(traced, path);
+    // Step 2 highlights what is traced: no page frames or lettering of the same style.
+    if (sizesMode) for (const path of withoutLettering(assemblePaths(contentPages(doc), sheet.placements))) if (path.stroke || path.fill) add(traced, path);
     return { list: styleLegend(sheet.paths).map(entry => ({ entry, paths: byKey.get(entry.key)! })), built: new Map<string, Path2D>(), traced, builtTraced: new Map<string, Path2D>() };
   }, [doc, sheet, sizesMode]);
   const view = useRef<View>({ scale: 0, x: 0, y: 0 }), fitted = useRef(true), frame = useRef(0), paintRef = useRef(() => {});

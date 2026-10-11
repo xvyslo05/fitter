@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { assignedSizes, sizeRole, suggestAssignments, traceOutlines, traceSizes } from '../src/pdf/trace';
+import { assignedSizes, sizeRole, suggestAssignments, traceOutlines, traceSizes, withoutLettering } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
 import { assembleTexts } from '../src/pdf/place';
 import { readPdf } from '../src/pdf/readPdf';
@@ -126,6 +126,27 @@ describe('tracing', () => {
     const result = traceSizes({ paths: [a, b], texts: [], assignments: { [styleKeyOf(a)]: 'uni', [styleKeyOf(b)]: 'uni' }, options: opts });
     expect(result.sizes).toEqual(['uni']);
     expect(result.candidates).toHaveLength(1);
+  });
+  it('drops lettering drawn as fills, but keeps dashed lines, marks and other colours', () => {
+    // An octagon of 6 pt stands for a glyph outline (more than 6 points).
+    const glyph = (x: number, y: number, fill: [number, number, number] = [0, 0, 0]) => testPath([0, 1, 2, 3, 4, 5, 6, 7].map(i => [x + 3 + 3 * Math.cos(i * Math.PI / 4), y + 3 + 3 * Math.sin(i * Math.PI / 4)] as [number, number]), { stroke: null, fill });
+    const word = [0, 8, 16, 24, 32].map(x => glyph(x, 0));
+    const dash = (x: number): [number, number][] => [[x, 50], [x + 6, 50], [x + 6, 51], [x, 51]];
+    const dashes = testPath(dash(0), { stroke: null, fill: [0, 0, 0], subpaths: [0, 10, 20, 30, 40, 50].map(dash), closed: [true, true, true, true, true, true] });
+    const marks = [glyph(100, 0), glyph(108, 0), glyph(116, 0)], coloured = glyph(40, 0, [1, 0, 0]);
+    const dot = testPath([[10, 2], [11, 2], [11, 3], [10, 3]], { stroke: null, fill: [0, 0, 0] }), lone = testPath([[80, 40], [81, 40], [81, 41], [80, 41]], { stroke: null, fill: [0, 0, 0] });
+    const kept = withoutLettering([...word, dot, dashes, ...marks, coloured, lone]);
+    expect(kept).toEqual([dashes, ...marks, coloured, lone]);
+  });
+  it('keeps a label beside a piece out of its outline', () => {
+    // A Foxit-style outline of four thin bands, and a word just above its top edge, within the closed gap.
+    const s = pt(12), band = 0.8, ink = { stroke: null, fill: [0, 0, 0] as [number, number, number] };
+    const piece = [testPath([[0, 0], [s, 0], [s, band], [0, band]], ink), testPath([[0, s], [s, s], [s, s - band], [0, s - band]], ink),
+      testPath([[0, 0], [band, 0], [band, s], [0, s]], ink), testPath([[s, 0], [s - band, 0], [s - band, s], [s, s]], ink)];
+    const label = [20, 28, 36, 44].map(x => testPath([0, 1, 2, 3, 4, 5, 6, 7].map(i => [x + 3 + 3 * Math.cos(i * Math.PI / 4), -3.5 + 3 * Math.sin(i * Math.PI / 4)] as [number, number]), ink));
+    const traced = (paths: typeof piece) => traceSizes({ paths, texts: [], assignments: { [styleKeyOf(piece[0])]: 'uni' }, options: opts }).candidates;
+    expect(traced(piece)).toHaveLength(1);
+    expect(area(traced([...piece, ...label])[0].sizes.uni)).toBeCloseTo(area(traced(piece)[0].sizes.uni), 6);
   });
   it('allows keeping square pieces that resemble calibration marks', () => {
     const path = testPath(squareRing(0, 0, pt(5)), { closed: [true] });
