@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { suggestAssignments, traceOutlines, traceSizes } from '../src/pdf/trace';
+import { assignedSizes, suggestAssignments, traceOutlines, traceSizes } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
 import { assembleTexts } from '../src/pdf/place';
 import { readPdf } from '../src/pdf/readPdf';
@@ -64,6 +64,45 @@ describe('tracing', () => {
     expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
     expect(area(result.candidates[0].sizes.M) * CM_PER_PT ** 2).toBeCloseTo(64, 0);
   });
+  it('parses size lists and the all-sizes token', () => {
+    expect(assignedSizes('S, M; L', [])).toEqual(['S', 'M', 'L']);
+    expect(assignedSizes(' 42/44 ', [])).toEqual(['42/44']);
+    for (const all of ['vše', 'VŠE', '*']) expect(assignedSizes(all, ['S', 'M'])).toEqual(['S', 'M']);
+    expect(assignedSizes('vše', [])).toEqual(['uni']);
+    expect(assignedSizes('', ['S'])).toEqual([]);
+    expect(assignedSizes(' , ', ['S'])).toEqual([]);
+    expect(assignedSizes(undefined, ['S'])).toEqual([]);
+    expect(assignedSizes('uni, vše', ['uni'])).toEqual(['uni']);
+    expect(assignedSizes('S, *', ['S', 'M'])).toEqual(['S', 'M']);
+    const only = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
+    expect(traceSizes({ paths: [only], texts: [], assignments: { [styleKeyOf(only)]: 'vše' }, options: opts }).sizes).toEqual(['uni']);
+  });
+  it('closes open size outlines with a shared line assigned to all sizes', () => {
+    const s = pt(10), a = testPath([[0, 0], [0, s], [s, s], [s, 0]]);
+    const b = testPath([[pt(1), 0], [pt(1), pt(8)], [pt(9), pt(8)], [pt(9), 0]], { stroke: [1, 0, 0] });
+    const c = testPath([[0, 0], [s, 0]], { stroke: [0, 1, 0] });
+    const result = traceSizes({ paths: [a, b, c], texts: [], assignments: { [styleKeyOf(a)]: 'L', [styleKeyOf(b)]: 'M', [styleKeyOf(c)]: 'vše' }, options: opts });
+    expect(result.sizes).toEqual(['L', 'M']);
+    expect(result.candidates).toHaveLength(1);
+    expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
+  });
+  it('traces a shared closed style in every named size', () => {
+    const a = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
+    const b = testPath(squareRing(pt(30), 0, pt(5)), { closed: [true], stroke: [1, 0, 0] });
+    const c = testPath(squareRing(pt(30), 0, pt(5)), { closed: [true], stroke: [0, 1, 0] });
+    const result = traceSizes({ paths: [a, b, c], texts: [], assignments: { [styleKeyOf(a)]: 'L', [styleKeyOf(b)]: 'M', [styleKeyOf(c)]: 'vše' }, options: opts });
+    expect(result.sizes).toEqual(['L', 'M']);
+    const shared = result.candidates.filter(x => x.sizes.L && x.sizes.M);
+    expect(shared).toHaveLength(1);
+    expect(area(shared[0].sizes.L)).toBeCloseTo(area(shared[0].sizes.M), 6);
+  });
+  it('traces a style listing several sizes in each of them', () => {
+    const a = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
+    const result = traceSizes({ paths: [a], texts: [], assignments: { [styleKeyOf(a)]: 'L, M' }, options: opts });
+    expect(result.sizes).toEqual(['L', 'M']);
+    expect(result.candidates).toHaveLength(1);
+    expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
+  });
   it('fills thin driver polygons and drops small outlines', () => {
     const s = pt(10), band = 0.8;
     const paths = [testPath([[0, 0], [s, 0], [s, band], [0, band]], { stroke: null, fill: [0, 0, 0] }),
@@ -115,6 +154,14 @@ describe('piece grouping', () => {
   });
   it('does not overwrite two outlines of the same size and places page texts', async () => {
     expect(groupPieces({ L: [squareRing(0, 0, 20)], S: [squareRing(1, 1, 5), squareRing(10, 10, 5)] }, [])).toHaveLength(2);
+    // A small mark inside the piece overlaps it completely too, but the size's own outline wins.
+    const marked = groupPieces({ L: [squareRing(0, 0, 20)], S: [squareRing(2, 2, 3), squareRing(1, 1, 18)] }, []);
+    expect(marked).toHaveLength(2);
+    expect(area(marked[0].sizes.S)).toBeCloseTo(18 * 18);
+    // The same with the mark in the reference size: the outline still joins the piece, not the mark.
+    const referenceMark = groupPieces({ L: [squareRing(0, 0, 20), squareRing(2, 2, 3)], S: [squareRing(1, 1, 18)] }, []);
+    expect(referenceMark).toHaveLength(2);
+    expect(area(referenceMark.find(c => c.sizes.S)!.sizes.L)).toBeCloseTo(20 * 20);
     const doc = await readPdf(pdfBytes([{ content: 'BT /F1 12 Tf 10 20 Td (label) Tj ET' }]));
     expect(assembleTexts(doc, [{ page: 1, block: 0, col: 0, row: 0, x: 50, y: 60 }])[0]).toMatchObject({ x: 60, y: 340 });
   });

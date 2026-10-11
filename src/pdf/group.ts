@@ -19,16 +19,18 @@ export function groupPieces(outlines: Record<string, Pt[][]>, texts: PdfText[]):
   const references = [...candidates];
   for (const size of sizes.slice(1)) {
     const matches = outlines[size].map(ring => {
-      let best: PieceCandidate | undefined, overlap = 0;
+      let best: PieceCandidate | undefined, shared = 0;
       const a = bbox(ring), ringArea = area(ring);
       for (const candidate of references) {
         const ref = candidate.sizes[candidate.refSize], b = bbox(ref);
         if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) continue;
-        const score = intersectionArea(ring, ref) / Math.min(ringArea, area(ref));
-        if (score >= 0.5 && score > overlap) { best = candidate; overlap = score; }
+        const common = intersectionArea(ring, ref);
+        if (common / Math.min(ringArea, area(ref)) >= 0.5 && common > shared) { best = candidate; shared = common; }
       }
-      return { ring, best, overlap };
-    }).sort((a, b) => b.overlap - a.overlap);
+      return { ring, best, shared };
+    // Shared area, not the overlap ratio, decides: a small mark inside a piece overlaps it
+    // completely too, but must neither claim the piece nor attract the piece's own outline.
+    }).sort((a, b) => b.shared - a.shared);
     for (const { ring, best } of matches) {
       if (best && !Object.hasOwn(best.sizes, size)) Object.defineProperty(best.sizes, size, { value: ring, enumerable: true, writable: true, configurable: true });
       else add(size, ring);

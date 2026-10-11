@@ -174,15 +174,26 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
   return outlines.sort((a, b) => area(b) - area(a));
 }
 
+const isAll = (token: string) => token === '*' || token.toLowerCase() === 'vše';
+const sizeTokens = (value: string | undefined) => (value ?? '').split(/[,;]/).map(t => t.trim()).filter(Boolean);
+
+// Sizes listed by one assignment value; `vše` / `*` = every explicitly named size, or `uni` when there is none.
+// No split on `/`: sizes like 42/44 exist.
+export function assignedSizes(value: string | undefined, named: string[]): string[] {
+  return [...new Set(sizeTokens(value).flatMap(t => isAll(t) ? (named.length ? named : ['uni']) : [t]))];
+}
+
 export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest): TraceResult {
+  const named = [...new Set(Object.values(assignments).flatMap(v => sizeTokens(v).filter(t => !isAll(t))))];
   const selected = new Map<string, PdfPath[]>();
   for (const path of excludeScaleMarks ? withoutScaleMarks(paths, texts, scale) : paths) {
-    const size = assignments[styleKeyOf(path)]?.trim();
-    if (!size) continue;
-    const group = selected.get(size) ?? []; group.push(path); selected.set(size, group);
+    for (const size of assignedSizes(assignments[styleKeyOf(path)], named)) {
+      const group = selected.get(size) ?? []; group.push(path); selected.set(size, group);
+    }
   }
-  const outlines = Object.fromEntries([...selected].map(([size, group]) => [size, traceOutlines(group, options)]));
-  return { cmPerPt: options.cmPerPt, sizes: [...selected.keys()], candidates: groupPieces(outlines, texts) };
+  const sizes = [...named, ...(named.length ? [] : ['uni'])].filter(size => selected.has(size));
+  const outlines = Object.fromEntries(sizes.map(size => [size, traceOutlines(selected.get(size)!, options)]));
+  return { cmPerPt: options.cmPerPt, sizes, candidates: groupPieces(outlines, texts) };
 }
 
 // Default size guess: the one style that encloses clearly more area than any other.

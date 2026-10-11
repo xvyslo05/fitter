@@ -268,7 +268,7 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null }: {
 function Sizes({ doc, layout, sheet, active, result, onResult }: {
   doc: PdfDoc; layout: PageLayout; sheet: Sheet; active: boolean; result: TraceResult | null; onResult: (value: TraceResult | null) => void;
 }) {
-  const legend = useMemo(() => styleLegend(sheet.paths), [sheet]), theme = useTheme();
+  const legend = useMemo(() => styleLegend(sheet.content), [sheet]), theme = useTheme();
   const [hovered, setHovered] = useState<string | null>(null), [focused, setFocused] = useState<string | null>(null);
   // A clicked row stays highlighted after the pointer leaves; hover and focus show other styles meanwhile.
   const [pinned, setPinned] = useState<string | null>(null), highlight = hovered ?? focused ?? pinned;
@@ -323,7 +323,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
           setBusy(false); worker?.terminate();
         };
         worker.onerror = () => { setError('Obkreslení se nezdařilo. Zkuste hrubší rastr nebo menší arch.'); setBusy(false); worker?.terminate(); };
-        const request: TraceRequest = { paths: sheet.paths, texts: sheet.texts, assignments, options, scale: detected, excludeScaleMarks };
+        const request: TraceRequest = { paths: sheet.content, texts: sheet.texts, assignments, options, scale: detected, excludeScaleMarks };
         worker.postMessage(request);
       } catch (e) { setError(e instanceof Error ? e.message : 'Obkreslení se nezdařilo.'); setBusy(false); worker?.terminate(); }
     }, 250);
@@ -331,7 +331,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
+    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L); „vše“ znamená čáru společnou všem velikostem (lem, lom). Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
       <tbody>{legend.map((entry, i) => <tr key={entry.key} class={[highlight === entry.key && 'highlighted', pinned === entry.key && 'pinned'].filter(Boolean).join(' ') || undefined}
         onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
@@ -339,7 +339,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
           : <line x1="4" y1="12" x2="92" y2="12" stroke={inkColor(entry.color, theme === 'dark')} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
       </svg><span class="small muted">{entry.kind === 'fill' ? 'Výplň' : `${entry.width.toFixed(2)} pt`}</span></td>
         <td>{entry.paths}<span class="small muted">{(entry.lengthPt * cmPerPt).toFixed(1)} cm</span></td>
-        <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={40} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
+        <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={80} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
     <h3>Měřítko</h3>
     <p class="small">{detected.source === 'square' ? `Kontrolní čtverec na stránce ${detected.page}: ${detected.measuredPt!.toFixed(2)} pt → ${detected.squareCm} cm (střed čáry).`
       : 'Kontrolní čtverec nenalezen. Používám 100 % (2,54 / 72 cm na pt).'}</p>

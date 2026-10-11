@@ -55,22 +55,29 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
     if (!['ledvinka-gyda', 'kabelka-fiona', 'celia', 'raglan-hoodie-alex'].includes(id)) return;
     const reportOnly = id === 'raglan-hoodie-alex';
     const placements = placePages(doc, detectLayout(doc).layout).placements;
-    const paths = assemblePaths(doc, placements), texts = assembleTexts(doc, placements), legend = styleLegend(paths);
+    const paths = assemblePaths(contentPages(doc), placements), texts = assembleTexts(doc, placements), legend = styleLegend(paths);
     const library: Library = JSON.parse(readFileSync(resolve('library', `${id}.json`), 'utf8'));
     const filters: Record<string, Filter> = reportOnly ? raglan : config.sizes;
     // The wizard's default guess: the cutting-line style for one-size patterns, nothing for Celia's three sizes.
-    const suggestion = suggestAssignments(assemblePaths(contentPages(doc), placements), texts, scale);
+    const suggestion = suggestAssignments(paths, texts, scale);
     process.stdout.write(`${id}: suggestion=${Object.values(suggestion).join(',') || 'none'}\n`);
     if (id === 'celia') expect(suggestion).toEqual({});
     else if (!reportOnly) expect(legend.some(e => e.key === Object.keys(suggestion)[0] && matchesStyle(e, config.sizes.uni))).toBe(true);
+    // Raglan: one call over all sizes, the shared black fill style assigned as `vše`.
+    const sharedKeys = reportOnly ? legend.filter(e => matchesStyle(e, { color: [0, 0, 0] }, true)).map(e => e.key) : [];
+    const rasterOptions = { cmPerPt: scale.cmPerPt, gapMm: 1, resolutionMm: 0.5, minAreaCm2: 15 };
+    const raglanStart = performance.now();
+    const raglanResult = reportOnly ? traceSizes({ paths, texts, scale, options: rasterOptions, assignments: {
+      ...Object.fromEntries(sharedKeys.map(key => [key, 'vše'])),
+      ...Object.fromEntries(Object.entries(filters).flatMap(([size, filter]) => legend.filter(e => matchesStyle(e, filter, true)).map(e => [e.key, size]))) } }) : null;
+    const raglanElapsed = performance.now() - raglanStart;
     for (const [size, filter] of Object.entries(filters)) {
       const keys = new Set(legend.filter(e => matchesStyle(e, filter, reportOnly)).map(e => e.key));
       const selected = paths.filter(p => keys.has(styleKeyOf(p)));
       const start = performance.now();
-      const result = traceSizes({ paths: selected, texts, scale, assignments: Object.fromEntries([...keys].map(key => [key, size])),
-        options: { cmPerPt: scale.cmPerPt, gapMm: reportOnly ? 4 : 1, resolutionMm: 0.5, minAreaCm2: 15 } });
+      const result = raglanResult ?? traceSizes({ paths: selected, texts, scale, assignments: Object.fromEntries([...keys].map(key => [key, size])), options: rasterOptions });
       const traced = result.candidates.flatMap(c => c.sizes[size] ? [c.sizes[size]] : []);
-      const elapsed = performance.now() - start;
+      const elapsed = raglanResult ? raglanElapsed : performance.now() - start;
       const measured = traced.map(p => ({ area: area(p) * scale.cmPerPt ** 2, dims: dimensions(p).map(n => n * scale.cmPerPt) }));
       const distinct = new Map<string, Pt[]>();
       for (const piece of library.pieces) {
@@ -85,7 +92,8 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
         if (index !== -1) { matched++; used.add(index); }
       }
       process.stdout.write(`${id} ${size}: traced=${traced.length}; distinct=${expected.length}; matched=${matched}; ${elapsed.toFixed(0)} ms${reportOnly ? '; report-only' : ''}; areas=${measured.map(m => m.area.toFixed(1)).join(',')}; dimensions=${measured.map(m => m.dims.map(n => n.toFixed(2)).join('x')).join(',')} cm\n`);
-      if (!reportOnly) {
+      if (reportOnly) expect(matched).toBeGreaterThanOrEqual(2);
+      else {
         expect(traced.length).toBe(expected.length);
         expect(matched).toBe(expected.length);
         if (id === 'celia') expect(elapsed).toBeLessThan(2000);

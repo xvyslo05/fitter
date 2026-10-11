@@ -47,12 +47,12 @@ describe.skipIf(!present)('local PDF pieces acceptance (numbers and ids only)', 
     const configPath = resolve(directory, `${id}.json`), config = JSON.parse(readFileSync(configPath, 'utf8'));
     const doc = await readPdf(new Uint8Array(readFileSync(resolve(dirname(configPath), config.pdf))));
     const scale = detectScale(doc), placements = placePages(doc, detectLayout(doc).layout).placements;
-    const paths = assemblePaths(doc, placements), texts = assembleTexts(doc, placements), legend = styleLegend(paths);
+    const paths = assemblePaths(contentPages(doc), placements), texts = assembleTexts(doc, placements), legend = styleLegend(paths);
     const assignments: Record<string, string> = {};
     for (const [size, filter] of Object.entries(config.sizes as Record<string, Filter>)) for (const e of legend) if (matchesStyle(e, filter)) assignments[e.key] = size;
     const result = traceSizes({ paths, texts, scale, assignments, options: { cmPerPt: scale.cmPerPt, gapMm: 1, resolutionMm: 0.5, minAreaCm2: 15 } });
     const start = performance.now();
-    const sheet = { contentPaths: assemblePaths(contentPages(doc), placements), texts };
+    const sheet = { contentPaths: paths, texts };
     const drafts = suggestPieces(result, sheet), elapsed = performance.now() - start;
     const pattern = parsePatternFile(buildPattern(result, drafts, { id, name: 'test', seamAllowance: suggestSeamAllowance(texts), sizes: sortSizes(result.sizes) }));
     const included = drafts.filter(d => d.include);
