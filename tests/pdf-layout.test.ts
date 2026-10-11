@@ -136,6 +136,12 @@ describe('PDF layout and placement', () => {
     expect(matchPages(repeated)).toEqual([]);
     expect(seamMatches(repeated, [180, 280])).toEqual([]);
   });
+  it('drops a page frame drawn slightly off on one page, but keeps long lines elsewhere', async () => {
+    const frame = (d: number) => `${10 + d} ${10 + d} 180 0.8 re f ${10 + d} ${289 + d} 180 0.8 re f ${10 + d} ${10 + d} 0.8 280 re f ${189 + d} ${10 + d} 0.8 280 re f`;
+    const doc = await readPdf(pdfBytes([0, 0, 0, 1.5].map((d, i) => ({ content: `${frame(d)} ${i === 3 ? '100 20 0.8 260 re f 40 0 m 60 10 l S' : ''}` }))));
+    const kept = contentPages(doc).pages.map(p => p.paths.reduce((n, path) => n + path.subpaths.length, 0));
+    expect(kept).toEqual([0, 0, 0, 2]);
+  });
   it('requires two distinct crossings and a majority, not just coincident rules', async () => {
     const doc = await readPdf(pdfBytes([
       { content: '180 50 m 200 50 l S 180 100 m 200 100 l S 180 150 m 200 150 l S 180 200 m 200 200 l S' },

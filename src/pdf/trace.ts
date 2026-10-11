@@ -174,13 +174,20 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
   return outlines.sort((a, b) => area(b) - area(a));
 }
 
-const isAll = (token: string) => token === '*' || token.toLowerCase() === 'vše';
+// In a pattern with named sizes, `uni` means a line every size shares (hem, fold, one-size piece),
+// like `vše` / `*`; only without named sizes it is the single size `uni`.
+const isAll = (token: string) => token === '*' || ['vše', 'uni'].includes(token.toLowerCase());
 const sizeTokens = (value: string | undefined) => (value ?? '').split(/[,;]/).map(t => t.trim()).filter(Boolean);
 
-// Sizes listed by one assignment value; `vše` / `*` = every explicitly named size, or `uni` when there is none.
+// Sizes listed by one assignment value; `named` = every size named explicitly in the request.
 // No split on `/`: sizes like 42/44 exist.
 export function assignedSizes(value: string | undefined, named: string[]): string[] {
   return [...new Set(sizeTokens(value).flatMap(t => isAll(t) ? (named.length ? named : ['uni']) : [t]))];
+}
+// 'named': lists a size of its own; 'shared': only uni / vše / *; 'none': empty.
+export function sizeRole(value: string | undefined): 'named' | 'shared' | 'none' {
+  const tokens = sizeTokens(value);
+  return tokens.some(t => !isAll(t)) ? 'named' : tokens.length ? 'shared' : 'none';
 }
 
 export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest): TraceResult {

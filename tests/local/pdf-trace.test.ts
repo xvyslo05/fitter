@@ -63,12 +63,12 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
     process.stdout.write(`${id}: suggestion=${Object.values(suggestion).join(',') || 'none'}\n`);
     if (id === 'celia') expect(suggestion).toEqual({});
     else if (!reportOnly) expect(legend.some(e => e.key === Object.keys(suggestion)[0] && matchesStyle(e, config.sizes.uni))).toBe(true);
-    // Raglan: one call over all sizes, the shared black fill style assigned as `vše`.
+    // Raglan: one call over all sizes; the shared black fill style keeps the wizard's `uni`, which then means every size.
     const sharedKeys = reportOnly ? legend.filter(e => matchesStyle(e, { color: [0, 0, 0] }, true)).map(e => e.key) : [];
     const rasterOptions = { cmPerPt: scale.cmPerPt, gapMm: 1, resolutionMm: 0.5, minAreaCm2: 15 };
     const raglanStart = performance.now();
     const raglanResult = reportOnly ? traceSizes({ paths, texts, scale, options: rasterOptions, assignments: {
-      ...Object.fromEntries(sharedKeys.map(key => [key, 'vše'])),
+      ...Object.fromEntries(sharedKeys.map(key => [key, 'uni'])),
       ...Object.fromEntries(Object.entries(filters).flatMap(([size, filter]) => legend.filter(e => matchesStyle(e, filter, true)).map(e => [e.key, size]))) } }) : null;
     const raglanElapsed = performance.now() - raglanStart;
     for (const [size, filter] of Object.entries(filters)) {
@@ -92,7 +92,7 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
         if (index !== -1) { matched++; used.add(index); }
       }
       process.stdout.write(`${id} ${size}: traced=${traced.length}; distinct=${expected.length}; matched=${matched}; ${elapsed.toFixed(0)} ms${reportOnly ? '; report-only' : ''}; areas=${measured.map(m => m.area.toFixed(1)).join(',')}; dimensions=${measured.map(m => m.dims.map(n => n.toFixed(2)).join('x')).join(',')} cm\n`);
-      if (reportOnly) expect(matched).toBeGreaterThanOrEqual(2);
+      if (reportOnly) expect(matched).toBeGreaterThanOrEqual(3);
       else {
         expect(traced.length).toBe(expected.length);
         expect(matched).toBe(expected.length);

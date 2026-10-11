@@ -36,6 +36,23 @@ export function contentPages(doc: PdfDoc): PdfDoc {
   for (const bucket of buckets.values()) for (const group of bucket) if (group.pages.size >= threshold) {
     group.copies.forEach(points => furniture.add(points));
   }
+  // A page frame drawn a point or two off on one page (seen with Foxit) is furniture too: long
+  // axis-aligned lines or thin bands within 3 pt of a furniture line of the same extent.
+  const frameLine = (points: Pt[], page: PdfDoc['pages'][number]) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of points) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
+    const w = maxX - minX, h = maxY - minY;
+    return h <= 4 && w >= page.width * 0.5 ? { axis: 1, at: (minY + maxY) / 2, low: minX, high: maxX }
+      : w <= 4 && h >= page.height * 0.5 ? { axis: 0, at: (minX + maxX) / 2, low: minY, high: maxY } : undefined;
+  };
+  const frames = doc.pages.flatMap(page => page.paths.flatMap(path => path.subpaths.flatMap(points => {
+    const line = furniture.has(points) && frameLine(points, page);
+    return line ? [line] : [];
+  })));
+  if (frames.length) for (const page of doc.pages) for (const path of page.paths) for (const points of path.subpaths) {
+    const line = !furniture.has(points) && frameLine(points, page);
+    if (line && frames.some(f => f.axis === line.axis && Math.abs(f.at - line.at) <= 3 && Math.abs(f.low - line.low) <= 3 && Math.abs(f.high - line.high) <= 3)) furniture.add(points);
+  }
   const content = { pages: doc.pages.map(page => ({ ...page, paths: page.paths.flatMap(path => {
     const indices = path.subpaths.flatMap((points, i) => furniture.has(points) ? [] : [i]);
     return indices.length ? [{ ...path, subpaths: indices.map(i => path.subpaths[i]), closed: indices.map(i => path.closed[i]) }] : [];

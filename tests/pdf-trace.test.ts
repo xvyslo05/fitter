@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { assignedSizes, suggestAssignments, traceOutlines, traceSizes } from '../src/pdf/trace';
+import { assignedSizes, sizeRole, suggestAssignments, traceOutlines, traceSizes } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
 import { assembleTexts } from '../src/pdf/place';
 import { readPdf } from '../src/pdf/readPdf';
@@ -72,7 +72,11 @@ describe('tracing', () => {
     expect(assignedSizes('', ['S'])).toEqual([]);
     expect(assignedSizes(' , ', ['S'])).toEqual([]);
     expect(assignedSizes(undefined, ['S'])).toEqual([]);
-    expect(assignedSizes('uni, vše', ['uni'])).toEqual(['uni']);
+    expect(assignedSizes('uni, vše', [])).toEqual(['uni']);
+    // With named sizes, uni is a line every size shares; alone it is the one size.
+    expect(assignedSizes('uni', ['S', 'M'])).toEqual(['S', 'M']);
+    expect(assignedSizes('UNI', [])).toEqual(['uni']);
+    expect(['M, L', 'uni', 'vše', ' '].map(sizeRole)).toEqual(['named', 'shared', 'shared', 'none']);
     expect(assignedSizes('S, *', ['S', 'M'])).toEqual(['S', 'M']);
     const only = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
     expect(traceSizes({ paths: [only], texts: [], assignments: { [styleKeyOf(only)]: 'vše' }, options: opts }).sizes).toEqual(['uni']);
@@ -81,10 +85,12 @@ describe('tracing', () => {
     const s = pt(10), a = testPath([[0, 0], [0, s], [s, s], [s, 0]]);
     const b = testPath([[pt(1), 0], [pt(1), pt(8)], [pt(9), pt(8)], [pt(9), 0]], { stroke: [1, 0, 0] });
     const c = testPath([[0, 0], [s, 0]], { stroke: [0, 1, 0] });
-    const result = traceSizes({ paths: [a, b, c], texts: [], assignments: { [styleKeyOf(a)]: 'L', [styleKeyOf(b)]: 'M', [styleKeyOf(c)]: 'vše' }, options: opts });
-    expect(result.sizes).toEqual(['L', 'M']);
-    expect(result.candidates).toHaveLength(1);
-    expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
+    for (const shared of ['vše', 'uni']) {
+      const result = traceSizes({ paths: [a, b, c], texts: [], assignments: { [styleKeyOf(a)]: 'L', [styleKeyOf(b)]: 'M', [styleKeyOf(c)]: shared }, options: opts });
+      expect(result.sizes).toEqual(['L', 'M']);
+      expect(result.candidates).toHaveLength(1);
+      expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
+    }
   });
   it('traces a shared closed style in every named size', () => {
     const a = testPath(squareRing(0, 0, pt(10)), { closed: [true] });

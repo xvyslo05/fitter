@@ -3,6 +3,7 @@ import { detectLayout } from '../pdf/layout';
 import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/place';
 import { contentPages } from '../pdf/match';
 import { styleKeyOf, styleLegend } from '../pdf/styles';
+import { sizeRole } from '../pdf/trace';
 import { detectScale, overrideScale, CM_PER_PT } from '../pdf/scale';
 import { suggestPieces } from '../pdf/pieces';
 import type { PieceDraft } from '../pdf/pieces';
@@ -66,7 +67,9 @@ export function zoomView(view: View, factor: number, at: [number, number], sheet
 type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
 const EPS = 1e-6;
 
-function Preview({ doc, layout, sizesMode = false, result, highlight = null }: { doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null; highlight?: string | null }) {
+function Preview({ doc, layout, sizesMode = false, result, highlight = null, companions = [] }: {
+  doc: PdfDoc; layout: PageLayout; sizesMode?: boolean; result?: TraceResult | null; highlight?: string | null; companions?: string[];
+}) {
   const box = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), theme = useTheme(), hintId = `${useId()}-hint`;
   const sheet = useMemo(() => {
     const placed = placePages(doc, layout), paths = assemblePaths(doc, placed.placements);
@@ -82,10 +85,13 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null }: {
   }, [doc, layout]);
   // Paths grouped by line style, longest first; one Path2D per group is built lazily on first paint.
   const groups = useMemo(() => {
-    const byKey = new Map<string, PdfPath[]>();
-    for (const path of sheet.paths) if (path.stroke || path.fill) { const key = styleKeyOf(path); let list = byKey.get(key); if (!list) byKey.set(key, list = []); list.push(path); }
-    return { list: styleLegend(sheet.paths).map(entry => ({ entry, paths: byKey.get(entry.key)! })), built: new Map<string, Path2D>() };
-  }, [sheet]);
+    const byKey = new Map<string, PdfPath[]>(), traced = new Map<string, PdfPath[]>();
+    const add = (map: Map<string, PdfPath[]>, path: PdfPath) => { const key = styleKeyOf(path); let list = map.get(key); if (!list) map.set(key, list = []); list.push(path); };
+    for (const path of sheet.paths) if (path.stroke || path.fill) add(byKey, path);
+    // Step 2 highlights what is traced: the furniture-free paths, without page frames of the same style.
+    if (sizesMode) for (const path of assemblePaths(contentPages(doc), sheet.placements)) if (path.stroke || path.fill) add(traced, path);
+    return { list: styleLegend(sheet.paths).map(entry => ({ entry, paths: byKey.get(entry.key)! })), built: new Map<string, Path2D>(), traced, builtTraced: new Map<string, Path2D>() };
+  }, [doc, sheet, sizesMode]);
   const view = useRef<View>({ scale: 0, x: 0, y: 0 }), fitted = useRef(true), frame = useRef(0), paintRef = useRef(() => {});
   const pointers = useRef(new Map<number, { x: number; y: number; touch: boolean }>()), pinch = useRef({ x: 0, y: 0, d: 0 });
   const sheetSize = useRef<Size>(sheet); sheetSize.current = sheet;
@@ -115,17 +121,21 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null }: {
     ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * (v.x - sheet.minX * v.scale), dpr * (v.y - sheet.minY * v.scale));
     const scale = v.scale;
     ctx.lineJoin = ctx.lineCap = 'round';
-    const draw = (g: (typeof groups.list)[number], color: string, width: number, dash: number[]) => {
-      let p = groups.built.get(g.entry.key);
-      if (!p) { p = new Path2D(); for (const path of g.paths) tracePreviewPath(p, path); groups.built.set(g.entry.key, p); }
+    const draw = (g: (typeof groups.list)[number], color: string, width: number, dash: number[], traced = false) => {
+      const own = traced && groups.traced.get(g.entry.key), cache = own ? groups.builtTraced : groups.built;
+      let p = cache.get(g.entry.key);
+      if (!p) { p = new Path2D(); for (const path of own || g.paths) tracePreviewPath(p, path); cache.set(g.entry.key, p); }
       ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.stroke(p);
     };
     const dashOf = (e: StyleEntry) => e.kind === 'stroke' && e.dash.reduce((a, b) => a + b, 0) > 0 ? e.dash : [];
     const marked = sizesMode ? groups.list.find(g => g.entry.key === highlight) : undefined;
     if (marked) {
+      // Companions: the shared styles (uni / vše) that complete the highlighted size's outlines.
+      const shared = groups.list.filter(g => g !== marked && companions.includes(g.entry.key));
       for (const g of groups.list) if (g !== marked) draw(g, token('--sheet-line'), Math.max(1 / scale, g.entry.width), dashOf(g.entry));
-      ctx.globalAlpha = 0.35; draw(marked, token('--focus'), 8 / scale, []); ctx.globalAlpha = 1;
-      draw(marked, inkColor(marked.entry.color, dark), Math.max(2.5 / scale, marked.entry.width), dashOf(marked.entry));
+      for (const g of shared) draw(g, inkColor(g.entry.color, dark), Math.max(2.5 / scale, g.entry.width), dashOf(g.entry), true);
+      ctx.globalAlpha = 0.35; draw(marked, token('--focus'), 8 / scale, [], true); ctx.globalAlpha = 1;
+      draw(marked, inkColor(marked.entry.color, dark), Math.max(2.5 / scale, marked.entry.width), dashOf(marked.entry), true);
       ctx.setLineDash([]);
       return;
     }
@@ -170,7 +180,7 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null }: {
   };
   useEffect(() => { refit(); }, [sheet]);
   useEffect(() => { const a = document.activeElement; if (a instanceof HTMLButtonElement && a.disabled && box.current?.contains(a)) box.current.focus(); }, [atFit, atMax]);
-  useEffect(() => { schedule(); }, [doc, sheet, groups, sizesMode, result, theme, highlight]);
+  useEffect(() => { schedule(); }, [doc, sheet, groups, sizesMode, result, theme, highlight, companions.join('|')]);
   useEffect(() => {
     const node = box.current;
     if (!node) return;
@@ -274,6 +284,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   const [pinned, setPinned] = useState<string | null>(null), highlight = hovered ?? focused ?? pinned;
   const detected = useMemo(() => detectScale(doc), [doc]);
   const [assignments, setAssignments] = useState<Record<string, string>>({}), [suggesting, setSuggesting] = useState(false);
+  const companions = highlight && sizeRole(assignments[highlight]) === 'named' ? legend.filter(e => sizeRole(assignments[e.key]) === 'shared').map(e => e.key) : [];
   const [squareCm, setSquareCm] = useState(''), [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
   const [excludeScaleMarks, setExcludeScaleMarks] = useState(true);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -331,7 +342,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L); „vše“ znamená čáru společnou všem velikostem (lem, lom). Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
+    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L). U střihu s více velikostmi znamená „uni“ (nebo „vše“) čáru společnou všem velikostem: lem, lom, jednovelikostní díl. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
       <tbody>{legend.map((entry, i) => <tr key={entry.key} class={[highlight === entry.key && 'highlighted', pinned === entry.key && 'pinned'].filter(Boolean).join(' ') || undefined}
         onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
@@ -354,7 +365,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>
-  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={highlight} />
+  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={highlight} companions={companions} />
     {result && <section><h3>Kandidáti dílů</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
       <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Díl</th><th>Velikost</th><th>Plocha (cm²)</th><th>Šířka × výška (cm)</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {
