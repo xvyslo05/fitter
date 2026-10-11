@@ -18,22 +18,9 @@ const expectedBlocks: Record<string, LayoutBlock[]> = {
   'raglan-hoodie-alex': [{ pages: [7, 14], rows: [2, 2, 2, 2] }, { pages: [15, 26], rows: [3, 3, 3, 3] }, { pages: [27, 32], rows: [3, 3] }, { pages: [33, 34], rows: [2] }],
 };
 // Explicit exceptions, not manual fallback layouts. The production detector
-// has no PDF names/configurations. These tests still place only detectLayout's
-// result, check its offsets and time the full layout/place/assemble pipeline.
-// Fiona and Gyda: after removing frame corners, horizontal rows have >=2
-// matched crossings, but there are zero vertical seam links. The two vertical
-// crossings in the raw profiles were both frame corners. Their relative row
-// placement cannot be distinguished from two independent blocks by content.
-// Raglan: the filled-frame centre is 43.44..545.64 / 42.24..786.12 pt.
-// Even allowing 1 pt for endpoints under its painted border, 33->34 has no
-// matching crossing (position 0.6 pt, slope 0.05); several other required seams
-// are also missing. Candidate 10v14 conflicts with 12v14. Guessing a complete
-// grid from these links would violate the row-major consistency requirement.
-const documentedLimits: Record<string, { blocks: LayoutBlock[]; reason: string }> = {
-  'kabelka-fiona': { blocks: [{ pages: [2, 4], rows: [3] }, { pages: [5, 6], rows: [2] }], reason: 'no non-furniture vertical links' },
-  'ledvinka-gyda': { blocks: [{ pages: [2, 3], rows: [2] }, { pages: [4, 5], rows: [2] }], reason: 'no non-furniture vertical links' },
-  'raglan-hoodie-alex': { blocks: [{ pages: [24, 26], rows: [3] }, { pages: [30, 31], rows: [2] }], reason: 'missing frame crossings and inconsistent links' },
-};
+// has no PDF names/configurations. These tests place only detectLayout's result,
+// check its offsets and time the full layout/place/assemble pipeline.
+const documentedLimits: Record<string, { blocks: LayoutBlock[]; reason: string }> = {};
 // Only reference offsets are inspected. Never log text/geometry or write PDF data.
 function offsetError(placements: PagePlacement[], blocks: LayoutBlock[], reference: Record<string, [number, number]>, step: [number, number]) {
   let error = 0;

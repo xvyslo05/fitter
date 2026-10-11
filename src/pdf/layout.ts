@@ -155,6 +155,148 @@ function labelMatches(pages: PdfPage[], step: Pt): Match[] {
   return labels.slice(1).map(l => ({ a: labels[0].page, b: l.page, dx: (l.col - labels[0].col) * step[0], dy: (l.row - labels[0].row) * step[1], votes: 1 }));
 }
 
+// Assembly overview ("Klebeplan"): a small grid of tile-shaped cells, one per
+// tile page, one group per separately assembled sheet.
+type Line = { at: number; low: number; high: number };
+type Cell = { x1: number; y1: number; x2: number; y2: number };
+function mergeLines(lines: Line[]): { lines: Line[]; positions: number } {
+  const sorted = [...lines].sort((a, b) => a.at - b.at), merged: Line[] = [];
+  let positions = 0;
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j < sorted.length && sorted[j].at - sorted[i].at <= 1) j++;
+    positions++;
+    let current: (Line & { weight: number; sum: number }) | undefined;
+    for (const l of sorted.slice(i, j).sort((a, b) => a.low - b.low)) {
+      const length = l.high - l.low;
+      if (current && l.low <= current.high + 1.5) {
+        current.high = Math.max(current.high, l.high); current.weight += length; current.sum += l.at * length;
+      } else {
+        if (current) merged.push({ at: current.sum / current.weight, low: current.low, high: current.high });
+        current = { ...l, weight: length, sum: l.at * length };
+      }
+    }
+    if (current) merged.push({ at: current.sum / current.weight, low: current.low, high: current.high });
+    i = j;
+  }
+  return { lines: merged, positions };
+}
+// [vertical, horizontal] merged lines, or undefined for a page too busy to be an overview.
+function overviewLines(page: PdfPage): [Line[], Line[]] | undefined {
+  const raw: Line[][] = [[], []];
+  for (const path of page.paths) for (const points of path.subpaths) {
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i];
+      for (const axis of [0, 1] as const) {
+        const low = Math.min(a[1 - axis], b[1 - axis]), high = Math.max(a[1 - axis], b[1 - axis]);
+        if (Math.abs(a[axis] - b[axis]) < 0.5 && high - low >= 6) raw[axis].push({ at: (a[axis] + b[axis]) / 2, low, high });
+      }
+    }
+    if (path.fill && !path.stroke && points.length) {
+      // Thin filled bands (Foxit) stand for their centre line.
+      const min = [Infinity, Infinity], max = [-Infinity, -Infinity];
+      for (const p of points) for (const axis of [0, 1] as const) { min[axis] = Math.min(min[axis], p[axis]); max[axis] = Math.max(max[axis], p[axis]); }
+      const axis = max[0] - min[0] < max[1] - min[1] ? 0 : 1, short = max[axis] - min[axis], long = max[1 - axis] - min[1 - axis];
+      if (short <= 3 && long >= 6) raw[axis].push({ at: (min[axis] + max[axis]) / 2, low: min[1 - axis], high: max[1 - axis] });
+    }
+  }
+  const [vertical, horizontal] = [mergeLines(raw[0]), mergeLines(raw[1])];
+  return vertical.positions > 200 || horizontal.positions > 200 ? undefined : [vertical.lines, horizontal.lines];
+}
+function overviewCells(page: PdfPage, aspect: number): Cell[] {
+  const lines = overviewLines(page);
+  if (!lines) return [];
+  const vertical = lines[0].filter(l => l.high - l.low >= 10), cells: Cell[] = [];
+  const horizontal = lines[1].filter(l => l.high - l.low >= 10).sort((p, q) => p.at - q.at);
+  for (const a of vertical) for (const b of vertical) {
+    const w = b.at - a.at;
+    if (w < 12 || w > page.width * 0.6 || Math.min(a.high, b.high) - Math.max(a.low, b.low) < 12) continue;
+    // Consecutive lines spanning both columns are the only minimal row pairs; only a
+    // line near the middle can split a cell of the same aspect (stray lines elsewhere are ignored).
+    const spanning = horizontal.filter(l => l.low <= a.at + 1 && l.high >= b.at - 1)
+      .filter((l, i, all) => i === 0 || l.at - all[i - 1].at > 2);
+    for (let i = 1; i < spanning.length; i++) {
+      const y1 = spanning[i - 1].at, y2 = spanning[i].at, h = y2 - y1;
+      if (h < 12 || h > page.height * 0.6 || Math.abs(w / h - aspect) / aspect > 0.1) continue;
+      const covers = (l: Line) => l.low <= y1 + 1 && l.high >= y2 - 1;
+      if (!covers(a) || !covers(b) || vertical.some(l => Math.abs(l.at - (a.at + b.at) / 2) <= w * 0.1 && covers(l))) continue;
+      if (!cells.some(c => Math.abs(c.x1 - a.at) < 3 && Math.abs(c.x2 - b.at) < 3 && Math.abs(c.y1 - y1) < 3 && Math.abs(c.y2 - y2) < 3)) {
+        cells.push({ x1: a.at, y1, x2: b.at, y2 });
+      }
+    }
+  }
+  return cells;
+}
+// Row lengths per group, groups in reading order; undefined when the cells are no usable grid.
+function overviewGroups(all: Cell[]): number[][] | undefined {
+  const near = (a: number, b: number) => Math.abs(a - b) <= 0.03 * Math.max(a, b);
+  const similar = (a: Cell, b: Cell) => near(a.x2 - a.x1, b.x2 - b.x1) && near(a.y2 - a.y1, b.y2 - b.y1);
+  let cells: Cell[] = [];
+  for (const seed of all) { const same = all.filter(c => similar(seed, c)); if (same.length > cells.length) cells = same; }
+  if (cells.length < 2) return undefined;
+  const overlap = (a0: number, a1: number, b0: number, b1: number) => Math.min(a1, b1) - Math.max(a0, b0);
+  const adjacent = (a: Cell, b: Cell) =>
+    ((Math.abs(a.x2 - b.x1) <= 2 || Math.abs(b.x2 - a.x1) <= 2) && overlap(a.y1, a.y2, b.y1, b.y2) >= (a.y2 - a.y1) / 2) ||
+    ((Math.abs(a.y2 - b.y1) <= 2 || Math.abs(b.y2 - a.y1) <= 2) && overlap(a.x1, a.x2, b.x1, b.x2) >= (a.x2 - a.x1) / 2);
+  const seen = new Set<Cell>(), groups: { cells: Cell[]; rows: number[] }[] = [];
+  for (const start of cells) {
+    if (seen.has(start)) continue;
+    const members = [start];
+    seen.add(start);
+    for (const a of members) for (const b of cells) if (!seen.has(b) && adjacent(a, b)) { seen.add(b); members.push(b); }
+    const minX = Math.min(...members.map(c => c.x1)), rows: number[] = [];
+    const sorted = [...members].sort((a, b) => a.y1 - b.y1 || a.x1 - b.x1);
+    for (let i = 0; i < sorted.length;) {
+      const row = sorted.filter(c => Math.abs(c.y1 - sorted[i].y1) <= 2).sort((a, b) => a.x1 - b.x1);
+      if (Math.abs(row[0].x1 - minX) > 2 || row.some((c, k) => k > 0 && Math.abs(c.x1 - row[k - 1].x2) > 2)) return undefined;
+      rows.push(row.length); i += row.length;
+    }
+    groups.push({ cells: members, rows });
+  }
+  const height = cells[0].y2 - cells[0].y1, top = (g: { cells: Cell[] }) => Math.min(...g.cells.map(c => c.y1)), left = (g: { cells: Cell[] }) => Math.min(...g.cells.map(c => c.x1));
+  // Bands by top (within half a cell height of the band's first top), then left to right.
+  const byTop = [...groups].sort((a, b) => top(a) - top(b)), band = new Map<typeof groups[number], number>();
+  let bandTop = -Infinity, bands = -1;
+  for (const g of byTop) { if (top(g) - bandTop > height / 2) { bands++; bandTop = top(g); } band.set(g, bands); }
+  groups.sort((a, b) => band.get(a)! - band.get(b)! || left(a) - left(b));
+  return groups.map(g => g.rows);
+}
+function overviewBlocks(doc: PdfDoc, matches: Match[], step: Pt): LayoutBlock[] | undefined {
+  let best: number[][] | undefined, bestCount = 0, bestCovered = 0;
+  for (const page of doc.pages) {
+    const groups = overviewGroups(overviewCells(page, step[0] / step[1]));
+    const count = groups?.flat().reduce((a, b) => a + b, 0) ?? 0;
+    // Only groups of 2+ cells (touching cells) count as coverage; single cells still take their page.
+    const covered = groups?.map(rows => rows.reduce((a, b) => a + b, 0)).filter(n => n >= 2).reduce((a, b) => a + b, 0) ?? 0;
+    if (groups && covered && count <= doc.pages.length && covered > bestCovered) { best = groups; bestCount = count; bestCovered = covered; }
+  }
+  if (!best) return undefined;
+  const cells = best.flatMap((rows, group) => rows.flatMap((length, row) => Array.from({ length }, (_, col) => ({ group, col, row }))));
+  const known = new Set(doc.pages.map(p => p.index));
+  const links = matches.flatMap(m => {
+    const col = Math.round(m.dx / step[0]), row = Math.round(m.dy / step[1]);
+    return known.has(m.a) && known.has(m.b) && Math.abs(m.dx - col * step[0]) <= 1 && Math.abs(m.dy - row * step[1]) <= 1 && (col || row) ? [{ ...m, col, row }] : [];
+  });
+  let start = 0, bestScore = -Infinity, bestAgree = 0, bestDisagree = 0, ties = 0;
+  for (let s = 1; s + bestCount - 1 <= doc.pages.length; s++) {
+    let agree = 0, disagree = 0;
+    for (const m of links) {
+      const a = cells[m.a - s], b = cells[m.b - s];
+      if (!a || !b) continue;
+      if (a.group === b.group && b.col - a.col === m.col && b.row - a.row === m.row) agree++; else disagree++;
+    }
+    if (agree - disagree > bestScore) { start = s; bestScore = agree - disagree; bestAgree = agree; bestDisagree = disagree; ties = 0; }
+    else if (agree - disagree === bestScore) ties++;
+  }
+  if (!start || bestAgree <= bestDisagree || ties) return undefined;
+  let first = start;
+  return best.map(rows => {
+    const count = rows.reduce((a, b) => a + b, 0), block: LayoutBlock = { pages: [first, first + count - 1], rows };
+    first += count;
+    return block;
+  });
+}
+
 export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string } {
   if (!doc.pages.length) throw new Error('PDF neobsahuje stránky.');
   const size: Pt = [median(doc.pages.map(p => p.width)), median(doc.pages.map(p => p.height))];
@@ -177,6 +319,12 @@ export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string 
     if (labeled.length < blocks.length) { blocks = labeled; sources.push('popisky dlaždic'); }
   }
   if (seams.length) sources.push('návaznost hran');
+  const linked = blocks.filter(b => b.pages[0] !== b.pages[1]).reduce((n, b) => n + b.pages[1] - b.pages[0] + 1, 0);
+  if (linked < doc.pages.length) {
+    const overview = overviewBlocks(doc, links, step);
+    const covered = overview?.filter(b => b.pages[0] !== b.pages[1]).reduce((n, b) => n + b.pages[1] - b.pages[0] + 1, 0) ?? 0;
+    if (overview && (covered > linked || covered === linked && overview.length < blocks.filter(b => b.pages[0] !== b.pages[1]).length)) { blocks = overview; sources.push('náhled skládání'); }
+  }
   if (blocks.some(b => b.pages[0] !== b.pages[1])) blocks = blocks.filter(b => b.pages[0] !== b.pages[1]);
   if (blocks.every(b => b.pages[0] === b.pages[1]) && doc.pages.length > 1) sources.push('bloky je třeba zadat');
   return { layout: { step, blocks }, source: [...new Set(sources)].join(' + ') };

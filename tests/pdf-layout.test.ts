@@ -5,7 +5,7 @@ import { assemblePaths, placePages, unusedPages } from '../src/pdf/place';
 import { contentPages, edgeMatches, matchPages, seamMatches } from '../src/pdf/match';
 import { pdfBytes, clippedLines } from './pdf-writer';
 
-function repeatedSheet(full: boolean, labels = false) {
+function repeatedSheet(full: boolean, labels = false, overview = '') {
   const origins = [[0, 0], [180, 0], [0, 280], [180, 280]];
   // Unique bent paths across each seam. The exporter keeps complete paths
   // that touch the tile, even where the PDF clip hides their ends.
@@ -15,7 +15,8 @@ function repeatedSheet(full: boolean, labels = false) {
     q 1 0 0 1 ${-x} ${-y} cm
     ${shapes.flatMap(([sx, sy], i) => full || (sx + 25 >= x && sx <= x + 200 && sy + 25 >= y && sy <= y + 300)
     ? [`${sx} ${sy} m ${sx + 25} ${sy + 5 + i} l ${sx + 12} ${sy + 25 + i} l S`] : []).join('\n')}
-    Q Q ${labels ? `BT /F1 12 Tf 20 20 Td (${page < 2 ? 'A' : 'B'}${page % 2 + 1}) Tj ET` : ''}` })));
+    Q Q ${labels ? `BT /F1 12 Tf 20 20 Td (${page < 2 ? 'A' : 'B'}${page % 2 + 1}) Tj ET` : ''}
+    ${page === 0 ? overview : ''}` })));
 }
 
 describe('PDF layout and placement', () => {
@@ -172,6 +173,67 @@ describe('PDF layout and placement', () => {
   it('retains coincident geometry with different directional stroke transforms', async () => {
     const doc = await readPdf(pdfBytes([{ content: '8 w 0 0 m 100 0 l S q 2 0 0 0.5 0 0 cm 0 0 m 50 0 l S Q' }]));
     expect(assemblePaths(doc, [{ page: 1, block: 0, col: 0, row: 0, x: 0, y: 0 }])).toHaveLength(2);
+  });
+
+  // Tiles that link only horizontally (pairs 1-2, 3-4, ...) through seam lines; `extra` is drawn on the first tile.
+  const linkedTiles = (n: number, extra = '') => Array.from({ length: n }, (_, i) => {
+    const x = (i % 2) * 180, y = Math.floor(i / 2) * 40;
+    const lines = [[0, 50 + y, 380, 80 + y], [0, 110 + y, 380, 155 + y]];
+    return { content: `q 1 0 0 -1 0 300 cm 10 10 m 10 290 l 190 290 l 190 ${70 + i} l S
+      ${clippedLines(lines, [x + 10, 10, x + 190, 290], [x, 0])} Q ${i === 0 ? extra : ''}` };
+  });
+  const rects = (cells: number[][]) => cells.map(([x, y]) => `${x} ${y} 54 90 re S`).join(' ');
+  it('reads an assembly overview of stroked cells when tiles share no content', async () => {
+    const cells = rects([[20, 20], [74, 20], [20, 110], [74, 110]]);
+    const doc = await readPdf(pdfBytes([{ content: cells }, ...linkedTiles(4)]));
+    const { layout, source } = detectLayout(doc);
+    expect(layout.blocks).toEqual([{ pages: [2, 5], rows: [2, 2] }]);
+    expect(source).toContain('náhled skládání');
+  });
+  it('reads an assembly overview drawn with thin filled bands, one group per sheet', async () => {
+    const band = (x: number, y: number, w: number, h: number) => `${x} ${y} ${w} ${h} re f`;
+    const grid = (x: number, y: number, cols: number, rows: number) => [
+      ...Array.from({ length: rows + 1 }, (_, r) => band(x, y + r * 90 - 0.4, cols * 54, 0.8)),
+      ...Array.from({ length: cols + 1 }, (_, c) => band(x + c * 54 - 0.4, y, 0.8, rows * 90))].join(' ');
+    const doc = await readPdf(pdfBytes(linkedTiles(6, `${grid(20, 20, 2, 2)} ${grid(20 + 120, 20, 2, 1)}`)));
+    const { layout, source } = detectLayout(doc);
+    expect(layout.blocks).toEqual([{ pages: [1, 4], rows: [2, 2] }, { pages: [5, 6], rows: [2] }]);
+    expect(source).toContain('náhled skládání');
+  });
+  it('does not accept an overview without supporting links', async () => {
+    const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [74, 20], [20, 110], [74, 110]]) }, ...Array.from({ length: 4 }, () => ({ content: '' }))]));
+    const { layout, source } = detectLayout(doc);
+    expect(layout.blocks.every(b => b.pages[0] === b.pages[1])).toBe(true);
+    expect(source).not.toContain('náhled skládání');
+    expect(source).toContain('bloky je třeba zadat');
+  });
+  it('does not accept an overview whose cells are separated by gaps', async () => {
+    const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [90, 20], [20, 130], [90, 130]]) }, ...linkedTiles(4)]));
+    expect(detectLayout(doc).source).not.toContain('náhled skládání');
+  });
+  it('does not accept a ragged group whose row does not start at the left edge', async () => {
+    const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [74, 20], [74, 110]]) }, ...linkedTiles(4).slice(0, 3)]));
+    expect(detectLayout(doc).source).not.toContain('náhled skládání');
+  });
+  it('maps overview groups to pages in reading order across bands', async () => {
+    const grid = rects([[150, 15], [204, 15], [150, 105], [204, 105], [10, 20], [64, 20], [10, 190], [64, 190]]);
+    const doc = await readPdf(pdfBytes([{ content: grid, width: 400 }, ...linkedTiles(8)]));
+    const { layout, source } = detectLayout(doc);
+    expect(layout.blocks).toEqual([{ pages: [2, 3], rows: [2] }, { pages: [4, 7], rows: [2, 2] }, { pages: [8, 9], rows: [2] }]);
+    expect(source).toContain('náhled skládání');
+  });
+  it('does not take a table-like grid with a different aspect for an overview', async () => {
+    const table = [0, 1, 2, 3].flatMap(r => [0, 1].map(c => `${20 + c * 60} ${20 + r * 15} 60 15 re S`)).join(' ');
+    const doc = await readPdf(pdfBytes([{ content: table }, ...Array.from({ length: 3 }, () => ({ content: '' }))]));
+    const { layout, source } = detectLayout(doc);
+    expect(layout.blocks).toEqual([1, 2, 3, 4].map(page => ({ pages: [page, page], rows: [1] })));
+    expect(source).not.toContain('náhled skládání');
+  });
+  it('keeps complete content evidence when an overview is present too', async () => {
+    const cells = [[20, 20], [65, 20], [20, 90], [65, 90]].map(([x, y]) => `${x} ${y} 45 70 re S`).join(' ');
+    const { layout, source } = detectLayout(await readPdf(repeatedSheet(true, false, cells)));
+    expect(layout.blocks).toEqual([{ pages: [1, 4], rows: [2, 2] }]);
+    expect(source).not.toContain('náhled skládání');
   });
 
 });
