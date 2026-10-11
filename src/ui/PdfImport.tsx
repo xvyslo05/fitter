@@ -270,6 +270,8 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
 }) {
   const legend = useMemo(() => styleLegend(sheet.paths), [sheet]), theme = useTheme();
   const [hovered, setHovered] = useState<string | null>(null), [focused, setFocused] = useState<string | null>(null);
+  // A clicked row stays highlighted after the pointer leaves; hover and focus show other styles meanwhile.
+  const [pinned, setPinned] = useState<string | null>(null), highlight = hovered ?? focused ?? pinned;
   const detected = useMemo(() => detectScale(doc), [doc]);
   const [assignments, setAssignments] = useState<Record<string, string>>({}), [suggesting, setSuggesting] = useState(false);
   const [squareCm, setSquareCm] = useState(''), [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
@@ -329,9 +331,10 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najeďte na řádek nebo klikněte do pole a styl se zvýrazní v náhledu.</p>
+    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
-      <tbody>{legend.map((entry, i) => <tr key={entry.key} class={(hovered ?? focused) === entry.key ? 'highlighted' : undefined} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
+      <tbody>{legend.map((entry, i) => <tr key={entry.key} class={[highlight === entry.key && 'highlighted', pinned === entry.key && 'pinned'].filter(Boolean).join(' ') || undefined}
+        onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
         {entry.kind === 'fill' ? <rect x="4" y="11" width="88" height="2" fill={inkColor(entry.color, theme === 'dark')} />
           : <line x1="4" y1="12" x2="92" y2="12" stroke={inkColor(entry.color, theme === 'dark')} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
       </svg><span class="small muted">{entry.kind === 'fill' ? 'Výplň' : `${entry.width.toFixed(2)} pt`}</span></td>
@@ -351,7 +354,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>
-  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={hovered ?? focused} />
+  </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={highlight} />
     {result && <section><h3>Kandidáti dílů</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
       <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Díl</th><th>Velikost</th><th>Plocha (cm²)</th><th>Šířka × výška (cm)</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {

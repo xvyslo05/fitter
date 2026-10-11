@@ -1332,7 +1332,10 @@ main {
 .pdf-legend th,.pdf-legend td,.pdf-candidates th,.pdf-candidates td { padding:8px; text-align:left; border-bottom:1px solid var(--border); }
 .pdf-legend thead,.pdf-candidates thead { position:sticky; top:0; background:var(--surface); }
 .pdf-legend td span { display:block; }
+.pdf-legend tbody tr { cursor:pointer; }
 .pdf-legend tr.highlighted td { background:var(--hover); }
+.pdf-legend tr.pinned td { background:var(--pressed-bg); }
+.pdf-legend tr.pinned td:first-child { box-shadow:inset 3px 0 var(--focus); }
 .pdf-legend input { width:80px; max-width:100%; }
 .pdf-legend svg { display:block; background:var(--sheet); border-radius:3px; }
 .pdf-trace-settings { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
