@@ -65,6 +65,13 @@ describe('tracing', () => {
     expect(Object.keys(result.candidates[0].sizes)).toEqual(['L', 'M']);
     expect(area(result.candidates[0].sizes.M) * CM_PER_PT ** 2).toBeCloseTo(64, 0);
   });
+  it('reports each size before it is traced', () => {
+    const a = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
+    const b = testPath(squareRing(pt(1), pt(1), pt(8)), { closed: [true], stroke: [1, 0, 0] });
+    const progress: { size: string; done: number; total: number }[] = [];
+    traceSizes({ paths: [a, b], texts: [], assignments: { [styleKeyOf(a)]: 'L', [styleKeyOf(b)]: 'M' }, options: opts }, p => progress.push(p));
+    expect(progress).toEqual([{ size: 'L', done: 0, total: 2 }, { size: 'M', done: 1, total: 2 }]);
+  });
   it('parses size lists and the all-sizes token', () => {
     expect(assignedSizes('S, M; L', [])).toEqual(['S', 'M', 'L']);
     expect(assignedSizes(' 42/44 ', [])).toEqual(['42/44']);

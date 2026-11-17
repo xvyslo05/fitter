@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampView, fitView, scaleLimits, zoomView } from '../src/ui/PdfImport';
+import { clampView, fitView, scaleLimits, zoomView } from '../src/ui/PdfPreview';
 
 const sheet = { width: 200, height: 100 }, box = { width: 400, height: 400 };
 

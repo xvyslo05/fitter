@@ -1467,6 +1467,26 @@ main {
 .pdf-answer .primary { width:auto; padding:10px 28px; }
 .pdf-scale-question { display:grid; gap:8px; justify-items:start; }
 .pdf-square-picture { width:220px; height:220px; border:1px solid var(--border); border-radius:8px; max-width:100%; }
+/* Step 2: size chips, tapped line panel, assigned lines. */
+.pdf-chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+.chip,.chip-button { display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:4px 14px; border:1px solid var(--border); border-radius:18px; background:var(--surface); color:inherit; font:inherit; font-size:14px; }
+.chip-button { cursor:pointer; min-width:44px; justify-content:center; }
+.chip-button:hover { background:var(--hover); }
+.chip-button.active { background:var(--pressed-bg); border-color:var(--focus); font-weight:700; }
+.chip-dot { font-size:11px; }
+.pdf-chip-form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.pdf-chip-form input { width:120px; }
+.pdf-assigned { list-style:none; padding:0; margin:8px 0; display:grid; gap:6px; }
+.pdf-assigned-row { display:flex; align-items:center; gap:10px; width:100%; padding:4px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:inherit; font:inherit; cursor:pointer; text-align:left; }
+.pdf-assigned-row svg { background:var(--sheet); border-radius:3px; flex:none; }
+.pdf-assigned-row:hover { background:var(--hover); }
+.pdf-assigned-row.pinned { background:var(--pressed-bg); box-shadow:inset 3px 0 var(--focus); }
+.pdf-line-panel { position:sticky; bottom:0; z-index:2; margin:12px 0; padding:12px 14px; border:1px solid var(--focus); border-radius:10px; background:var(--surface); }
+.pdf-line-head { display:flex; align-items:center; gap:10px; }
+.pdf-line-head svg { background:var(--sheet); border-radius:3px; flex:none; }
+.pdf-line-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.pdf-line-actions [aria-pressed="true"] { border-color:var(--focus); font-weight:700; }
+.pdf-size-controls progress { width:100%; }
 .pdf-advanced { margin:12px 0; }
 .pdf-scale-marks { display:flex; gap:8px; align-items:center; font-size:13px; }
 .pdf-scale-marks input { width:auto; }

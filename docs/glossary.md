@@ -52,6 +52,7 @@ Důvěra: **high** = termín jsem přímo viděl v textu zdroje (nebo ve více z
 | **podšívka** | lining | | high | BURDA ("Futter = podšívka") |
 | **výztuha** (nažehlovací; též **vlizelín**) | interfacing | **Vložka** je také běžná v obchodech (nažehlovací vložka), ale ve zdroji BURDA je "výztuha (vlizelín)". "Výztuž" (jak ji normalizuje pieces.ts) je ve zdrojích nenalezena; běžný význam je výztuž konstrukce. | high (výztuha, vlizelín), low (vložka, výztuž) | BURDA |
 | **podsádka** | facing | | high | BURDA ("Besatz = podsádka"), SIKULKY |
+| **střihová čára** (čára velikosti na archu, podél které se vystřihuje; ve střihu s více velikostmi má každá velikost svou čáru) | pattern line / cutting line (one line per size) | Přesné spojení „střihová čára“ jsem ve zdrojích nenašel doslova; vyhledávání potvrdilo jen věc (v PDF střihu s více velikostmi představuje každá čára jednu velikost, tlusté čáry jsou obrysy dílů). „Konstrukční čára“ je pomocná čára, ne obrys. V UI kroku Velikosti: „Společná pro všechny velikosti“, „Není to střihová čára“. | medium (věc), low (přesné slovní spojení) | prosikulky.cz INFO-rukavice.pdf (https://www.prosikulky.cz/wp-content/uploads/2020/pruvodce/INFO-rukavice.pdf), TUL elearning (druhy čar) |
 
 ### Směr, lom, záložky, značky
 

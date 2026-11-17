@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readPdf } from '../src/pdf/readPdf';
-import { tracePreviewPath, closePdfImport } from '../src/ui/PdfImport';
+import { closePdfImport } from '../src/ui/PdfImport';
+import { tracePreviewPath } from '../src/ui/PdfPreview';
 import { strokeMetrics } from '../src/pdf/stroke';
 import { pdfBytes, pdfStream } from './pdf-writer';
 

@@ -60,7 +60,7 @@ const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4
 const PAIR = /^\s*pairs?(?!\p{L})/iu;
 // Inches count only right after a number; "cut 2 in lining" is not a measurement.
 const MEASURE = /\d\s*(?:cm|mm)(?!\p{L})|\d\s*(?:inch(?:es)?(?!\p{L})|["”″]|in\.|in(?!\p{L})(?!\s+(?![x×]\s*\d)\p{L}))|(?<!\p{L})(?:cm|mm|inch(?:es)?|zoll)(?!\p{L})|kontrol|testquadrat|test\s+square|maßstab|měřítk|(?<!\p{L})scale/iu;
-const SIZE_TOKEN = /^(?:\d+(?:[.,]\d+)?|x{0,3}[sl]|m|\d?xl|x{1,4}l|uni)$/i;
+export const SIZE_TOKEN = /^(?:\d+(?:[.,]\d+)?|x{0,3}[sl]|m|\d?xl|x{1,4}l|uni)$/i;
 const STOP = /^(?:(?:vy|na|u)?st[řr][ií]h\p{L}*|(?:zu)?schn\p{L}*|cut\p{L}*|couper|the|and|und|aus|from|each|jeweils|mal|times|pairs?|páry?|kus\p{L}*|stück|stk|gegengleich|spiegelverkehrt|zrcadl\p{L}*|mirror\p{L}*|revers\p{L}*|fois|fabric|x{2,4}[sl])$/iu;
 // Printed Czech material words in any case form → dictionary form; other words stay as printed (lower case).
 const MATERIALS: [RegExp, string][] = [[/^podšív/, 'podšívka'], [/^vnějš/, 'vnější'], [/^vnitřn/, 'vnitřní'], [/^hlavn/, 'hlavní'],

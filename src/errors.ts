@@ -35,7 +35,7 @@ export const PLAIN_CODES = [
   'geom.seamNegative',
   // src/pdf
   'pdf.noPages', 'pdf.unknownPathOp', 'pdf.stepInvalid', 'pdf.noBlocks', 'pdf.pageRange', 'pdf.rowSum', 'pdf.pageReused',
-  'pdf.traceSettings', 'pdf.badCoordinates', 'pdf.sheetTooLarge', 'pdf.traceFailed',
+  'pdf.traceSettings', 'pdf.badCoordinates', 'pdf.sheetTooLarge', 'pdf.traceFailed', 'pdf.sizeName',
   'scale.squareSize', 'scale.percent', 'scale.squareMissing', 'scale.measured',
   'build.pieceGone', 'build.variantNoName', 'build.cellMissing', 'build.variantUnion', 'build.variantNoSizes',
   'rect.name', 'rect.material', 'rect.materialName', 'rect.count', 'rect.size',

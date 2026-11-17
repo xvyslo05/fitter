@@ -67,7 +67,7 @@ describe('UI sources', () => {
   const files = readdirSync(dir).filter(name => /\.tsx?$/.test(name));
 
   it('scans every UI file', () => {
-    expect(files).toEqual(expect.arrayContaining(['App.tsx', 'PdfImport.tsx', 'PdfPieces.tsx', 'PdfSave.tsx', 'Layout.tsx', 'export.ts']));
+    expect(files).toEqual(expect.arrayContaining(['App.tsx', 'PdfImport.tsx', 'PdfPreview.tsx', 'PdfSizes.tsx', 'PdfPieces.tsx', 'PdfSave.tsx', 'Layout.tsx', 'export.ts']));
   });
 
   it.each(files)('%s has no string literal or JSX text with a Czech diacritic', name => {

@@ -34,6 +34,10 @@ export interface TraceResult { cmPerPt: number; resolutionMm?: number; sizes: st
 export interface TraceRequest {
   paths: PdfPath[]; texts: PdfText[]; assignments: Record<string, string>; options: TraceOptions;
   scale?: ScaleResult; excludeScaleMarks?: boolean;
+  // The worker posts a TraceProgress before it traces each size.
+  progress?: boolean;
 }
+// `size` is about to be traced; `done` sizes are finished of `total`.
+export interface TraceProgress { size: string; done: number; total: number }
 export interface SuggestRequest { suggest: true; paths: PdfPath[]; texts: PdfText[]; scale: ScaleResult }
-export type TraceResponse = { result: TraceResult } | { suggestion: Record<string, string> } | { error: Note };
+export type TraceResponse = { result: TraceResult } | { suggestion: Record<string, string> } | { progress: TraceProgress } | { error: Note };

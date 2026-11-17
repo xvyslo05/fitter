@@ -6,7 +6,7 @@ import { groupPieces } from './group';
 import { withoutScaleMarks } from './scale';
 import { nestedOutlines, singleCell } from './proposals';
 import { sortSizes } from './build';
-import type { Cell, PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceRequest, TraceResult } from './types';
+import type { Cell, PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceProgress, TraceRequest, TraceResult } from './types';
 
 // Binary disk morphology. Horizontal runs keep work proportional to radius,
 // rather than the disk area, even for the largest permitted gap.
@@ -383,7 +383,7 @@ export function withoutLettering(paths: PdfPath[]): PdfPath[] {
   });
 }
 
-export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest): TraceResult {
+export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest, onProgress?: (progress: TraceProgress) => void): TraceResult {
   const named = [...new Set(Object.values(assignments).flatMap(v => sizeTokens(v).filter(t => !isAll(t))))];
   const selected = new Map<string, PdfPath[]>(), byStyle = new Map<string, PdfPath[]>(), styles = new Map<string, Set<string>>();
   for (const path of withoutLettering(excludeScaleMarks ? withoutScaleMarks(paths, texts, scale) : paths)) {
@@ -410,7 +410,7 @@ export function traceSizes({ paths, texts, assignments, options, scale, excludeS
       own.forEach((size, k) => shapes[size].push(rings === 'single' || !rings ? shape : { ring: rings[k], cells: singleCell(rings[k]) }));
     }
   }
-  for (const size of sizes) shapes[size] ??= traceShapes(selected.get(size)!, options);
+  sizes.forEach((size, done) => { onProgress?.({ size, done, total: sizes.length }); shapes[size] ??= traceShapes(selected.get(size)!, options); });
   const outlines = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.ring)]));
   const cells = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.cells)]));
   const candidates = groupPieces(outlines, texts, cells);

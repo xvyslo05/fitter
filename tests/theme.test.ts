@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inlineTokens, loadThemeChoice, resolveTheme, saveThemeChoice, sizeColor, THEME_KEY } from '../src/theme';
-import { inkColor } from '../src/ui/PdfImport';
+import { inkColor } from '../src/ui/PdfPreview';
 
 const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const TOKEN_BLOCKS = [':root, .theme-light', ':root[data-theme="dark"]', ':root:not([data-theme="light"])'];
