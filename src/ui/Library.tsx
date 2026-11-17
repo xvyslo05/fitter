@@ -23,18 +23,13 @@ function LibraryItem({ pattern, lines, onAdd, onDelete }: { pattern: PatternFile
   </div>;
 }
 
-export function Library({ patterns, linesUsing, loading, onImport, onImportPdf, onBackup, onAdd, onDelete }: {
+export function Library({ messages, onDismissMessages, collapsible, startCollapsed, patterns, linesUsing, loading, onImport, onImportPdf, onBackup, onAdd, onDelete }: {
+  messages: string[]; onDismissMessages: () => void; collapsible: boolean; startCollapsed: boolean;
   patterns: PatternFile[]; linesUsing: (patternId: string) => number; loading: boolean; onImportPdf: () => void; onBackup: () => void;
   onImport: (files: File[]) => Promise<void>; onAdd: (pattern: PatternFile) => void; onDelete: (pattern: PatternFile) => void;
 }) {
   const input = useRef<HTMLInputElement>(null), [dragging, setDragging] = useState(false);
-  // Files can be dropped anywhere on the list, so the backup block can stay closed.
-  return <div id="moje-strihy" tabIndex={-1} class={`library ${dragging ? 'dragging' : ''}`} onDragOver={e => { e.preventDefault(); setDragging(true); }}
-    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => {
-      e.preventDefault(); setDragging(false);
-      if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
-    }}>
-    <div class="section-heading"><h3>Moje střihy</h3><span class="count">{patterns.length}</span></div>
+  const content = <>
     <button type="button" class="primary pdf-import-button" onClick={onImportPdf}>Přidat střih z PDF</button>
     {dragging && <p class="drop-hint" role="status">Pusťte soubor střihu nebo zálohy (.json) sem.</p>}
     <div class="library-list">{patterns.map(p => <LibraryItem key={p.id} pattern={p} lines={linesUsing(p.id)} onAdd={() => onAdd(p)} onDelete={() => onDelete(p)} />)}</div>
@@ -46,5 +41,18 @@ export function Library({ patterns, linesUsing, loading, onImport, onImportPdf, 
         const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void onImport(files);
       }} />
     </details>
+  </>;
+  // Files can be dropped anywhere on the list, so the backup block can stay closed. Messages about patterns show here, beside the action.
+  // On a phone the panel can fold (summary instead of heading); the messages stay outside the fold.
+  return <div id="moje-strihy" tabIndex={-1} class={`library ${dragging ? 'dragging' : ''}`} onDragOver={e => { e.preventDefault(); setDragging(true); }}
+    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => {
+      e.preventDefault(); setDragging(false);
+      if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
+    }}>
+    {messages.length > 0 && <div class="notice" role="status"><div>{messages.map((message, i) => <p key={i}>{message}</p>)}</div>
+      <button type="button" class="icon-button" aria-label="Zavřít oznámení" onClick={onDismissMessages}>×</button></div>}
+    {collapsible
+      ? <details class="my-patterns" open={!startCollapsed}><summary><h3>Moje střihy</h3><span class="count">{patterns.length}</span></summary>{content}</details>
+      : <><div class="section-heading"><h3>Moje střihy</h3><span class="count">{patterns.length}</span></div>{content}</>}
   </div>;
 }

@@ -4,6 +4,7 @@ import type { Fabric, NestResult } from '../nest/types';
 export const BUY_ROUNDING_CM = 5;
 export const lengthToBuy = (usedCm: number): number => Math.max(0, Math.ceil(usedCm / BUY_ROUNDING_CM - 1e-9)) * BUY_ROUNDING_CM;
 
+const pieceWord = (n: number) => n === 1 ? 'díl' : n < 5 ? 'díly' : 'dílů';
 const num = (n: number, digits: number) => String(Math.round(n * 10 ** digits) / 10 ** digits).replace('.', ',');
 const cm = (n: number) => num(n, 1);
 const metres = (n: number) => (Math.round(n) / 100).toFixed(2).replace('.', ',');
@@ -31,3 +32,9 @@ export function fabricSummary(material: string, fabric: Fabric, result: NestResu
 }
 // Printed under the box, always.
 export const SHRINKAGE_NOTE = 'Počítejte s rezervou na srážení látky.';
+// Result card line replacing the "12 / 12 umístěno" badge: "všech 12 dílů" or "10 z 12 dílů, 2 se nevešly".
+export function placedSentence(placed: number, total: number): string {
+  const missed = total - placed;
+  if (missed <= 0) return total === 1 ? '1 díl' : `všech ${total} ${pieceWord(total)}`;
+  return `${placed} z ${total} ${pieceWord(total)}, ${missed} se ${missed === 1 ? 'nevešel' : missed < 5 ? 'nevešly' : 'nevešlo'}`;
+}

@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { demo } from '../src/model/demo';
-import { DEFAULT_GAP_CM, checkInputs, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, variantChoice } from '../src/model/prepare';
+import { DEFAULT_GAP_CM, FABRIC_WIDTH_PRESETS_CM, changedSettings, checkInputs, checkSettings, resetSettings, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, shouldReplaceDemo, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece } from './fixtures';
@@ -64,7 +64,7 @@ describe('prepare', () => {
     expect(checkInputs(settings, {}, ['Vnější látka'])).toBeNull();
     expect(checkInputs({ ...settings, gap: NaN }, {}, [])).toMatch(/Mezera/);
     expect(checkInputs({ ...settings, timeMs: 61_000 }, {}, [])).toMatch(/Čas/);
-    expect(checkInputs({ ...settings, resolution: 0.1 }, {}, [])).toMatch(/Krok/);
+    expect(checkInputs({ ...settings, resolution: 0.1 }, {}, [])).toMatch(/Přesnost/);
     expect(checkInputs(settings, { 'Vnější látka': { ...fabric, width: NaN } }, ['Vnější látka'])).toMatch(/Vnější látka: šířka/);
     expect(checkInputs(settings, { 'Vnější látka': { ...fabric, length: 0 } }, ['Vnější látka'])).toMatch(/Vnější látka: délka/);
     expect(checkInputs(settings, { Unused: { ...fabric, width: NaN } }, ['Vnější látka'])).toBeNull();
@@ -225,5 +225,43 @@ describe('pieceCounts', () => {
     expect(pieceCounts(pattern, line)).toEqual({ selected: 2, total: 4 });
     delete pattern.pieces[1].sizes.uni;
     expect(pieceCounts(pattern, line)).toEqual({ selected: 2, total: 3 });
+  });
+  it('pins the fabric width presets and keeps the default width among them', () => {
+    expect([...FABRIC_WIDTH_PRESETS_CM]).toEqual([110, 140, 150]);
+    expect(FABRIC_WIDTH_PRESETS_CM).toContain(defaultFabric().width);
+  });
+  it('lists what differs from the default settings, without the per-pattern seam switches', () => {
+    expect(changedSettings(structuredClone(defaultSettings))).toEqual([]);
+    expect(changedSettings({ ...defaultSettings, addSeam: { 'any-pattern': true } })).toEqual([]);
+    expect(changedSettings({ ...defaultSettings, gap: 0.3, timeMs: 20_000, seed: 7 })).toEqual(['mezera 0,3 cm', 'hledání 20 s', 'číslo pokusu 7']);
+    expect(changedSettings({ ...defaultSettings, seamAmount: 1.5, rotation: 'none', mirroredPairs: false, resolution: 1 }))
+      .toEqual(['přídavek na švy 1,5 cm', 'díly se neotáčejí', 'páry nezrcadlově', 'hrubá přesnost']);
+  });
+  it('resets settings to the defaults but keeps the seam switches', () => {
+    const reset = resetSettings({ ...defaultSettings, gap: 2, seed: 1, addSeam: { 'any-pattern': true } });
+    expect(reset).toEqual({ ...defaultSettings, addSeam: { 'any-pattern': true } });
+    expect(changedSettings(reset)).toEqual([]);
+  });
+  it('flags invalid settings that live in the collapsed block', () => {
+    expect(checkSettings(defaultSettings)).toBeNull();
+    expect(checkSettings({ ...defaultSettings, gap: 11 })).toMatch(/Mezera/);
+    expect(checkSettings({ ...defaultSettings, seamAmount: NaN })).toMatch(/Přídavek/);
+    expect(checkInputs({ ...defaultSettings, seed: NaN }, {}, [])).toBe(checkSettings({ ...defaultSettings, seed: NaN }));
+  });
+  it('says what is wrong with the settings in the words of the screen', () => {
+    expect(checkSettings({ ...defaultSettings, resolution: 2 })).toBe('Přesnost musí být 0,25–1 cm.');
+    expect(checkSettings({ ...defaultSettings, seed: NaN })).toBe('Číslo pokusu musí být číslo.');
+    const { pattern, line, settings } = setup(); line.quantity = 0;
+    expect(() => prepare([pattern], [line], {}, settings)).toThrow('Počet kusů: zadejte celé číslo 1–100.');
+  });
+  it('replaces the sample row only when it is the single untouched row', () => {
+    const sample = makeOrder(demo);
+    expect(shouldReplaceDemo([sample], demo.id)).toBe(true);
+    expect(shouldReplaceDemo([], demo.id)).toBe(false);
+    expect(shouldReplaceDemo([sample, makeOrder(demo)], demo.id)).toBe(false);
+    expect(shouldReplaceDemo([{ ...sample, patternId: 'other' }], demo.id)).toBe(false);
+    expect(shouldReplaceDemo([{ ...sample, quantity: 2 }], demo.id)).toBe(false);
+    expect(shouldReplaceDemo([{ ...sample, include: { handle: false } }], demo.id)).toBe(false);
+    expect(shouldReplaceDemo([{ ...sample, rotations: { handle: 'none' } }], demo.id)).toBe(false);
   });
 });

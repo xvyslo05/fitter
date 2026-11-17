@@ -17,7 +17,7 @@ export function OrderEditor({ line, patterns, settings, onChange, onRemove, onSe
       const p = patterns.find(p => p.id === e.currentTarget.value)!;
       onChange({ ...line, patternId: p.id, size: p.sizes[0], include: {}, rotations: {} });
     }}>
-      {!pattern && <option value={line.patternId}>Chybějící střih — importujte znovu</option>}
+      {!pattern && <option value={line.patternId}>Střih chybí, přidejte ho znovu</option>}
       {patterns.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
     </select></label><button type="button" class="text-button" aria-label={`Odebrat ${pattern?.name ?? 'řádek'}`} onClick={onRemove}>Odebrat</button></div>
     {pattern && <>

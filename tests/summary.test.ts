@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fabricSummary, lengthToBuy } from '../src/model/summary';
+import { fabricSummary, lengthToBuy, placedSentence } from '../src/model/summary';
 import type { Fabric, NestResult } from '../src/nest/types';
 
 const result = (usedLength: number, unplaced: string[] = [], placed = 4): NestResult => ({
@@ -52,5 +52,18 @@ describe('fabricSummary', () => {
     expect(fabricSummary('A', role, null, 3)!.text).toBe('A: počítám…');
     expect(fabricSummary('A', role, null, 0)).toBeNull();
     expect(fabricSummary('A', role, result(0, [], 0), 0)).toBeNull();
+  });
+});
+
+describe('placedSentence', () => {
+  it('says all pieces fit, with the right noun form', () => {
+    expect(placedSentence(12, 12)).toBe('všech 12 dílů');
+    expect(placedSentence(3, 3)).toBe('všech 3 díly');
+    expect(placedSentence(1, 1)).toBe('1 díl');
+  });
+  it('says how many did not fit, with the right verb form', () => {
+    expect(placedSentence(10, 12)).toBe('10 z 12 dílů, 2 se nevešly');
+    expect(placedSentence(11, 12)).toBe('11 z 12 dílů, 1 se nevešel');
+    expect(placedSentence(7, 12)).toBe('7 z 12 dílů, 5 se nevešlo');
   });
 });

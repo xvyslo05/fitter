@@ -2,7 +2,7 @@ import { useId, useRef, useState } from 'preact/hooks';
 import { bbox } from '../geom/polygon';
 import type { Pt } from '../model/pattern';
 import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
-import { lengthToBuy } from '../model/summary';
+import { lengthToBuy, placedSentence } from '../model/summary';
 import { exportPNG, exportSVG } from './export';
 
 // A placed piece against its paper pattern. flipY (a fold piece turned over along the fold) is a
@@ -88,9 +88,9 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
     setPointer(p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= displayLength ? { x: p.x, y: p.y, cx: e.clientX, cy: e.clientY } : null);
   }
   return <article class="result-card">
-    <div class="result-heading"><div><p class="eyebrow">{fabric.folded ? 'Dvě vrstvy · složená látka' : 'Jedna vrstva'}</p><h3>{material}</h3></div>
-      <span class={`badge ${result.unplaced.length ? 'amber' : ''}`}>{result.placements.length} / {pieces.length} umístěno</span></div>
-    <dl class="stats"><div><dt>Rozměr</dt><dd>{cm(width)} × {cm(length)} <small>cm</small></dd></div>
+    <div class="result-heading"><div><p class="eyebrow">{fabric.folded ? 'Dvě vrstvy · složená látka' : 'Jedna vrstva'} · {placedSentence(result.placements.length, pieces.length)}</p><h3>{material}</h3></div>
+      <span class={`badge print-legacy ${result.unplaced.length ? 'amber' : ''}`}>{result.placements.length} / {pieces.length} umístěno</span></div>
+    <dl class="stats print-legacy"><div><dt>Rozměr</dt><dd>{cm(width)} × {cm(length)} <small>cm</small></dd></div>
       <div><dt>Spotřebovaná délka</dt><dd>{cm(result.usedLength)} <small>cm</small></dd></div>
       <div><dt>Využití</dt><dd>{cm(result.utilization * 100)} <small>%</small></dd></div></dl>
     {fabric.folded && <p class="small muted result-note">Šířka před složením: {cm(fabric.width)} cm. Na obrázku je využitelná polovina.</p>}
@@ -174,7 +174,12 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         <span class="tip-point">Bod: {fromLeft} {cm(pointer.x)} · {fromRight} {cm(width - pointer.x)} · shora {cm(pointer.y)} cm</span>
       </div>}
     </div>
-    <div class="drawing-footer"><span>↓ Směr vlákna <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ Zrcadlově proti střihu</span></span><span>{result.iterations.toLocaleString('cs')} průchodů</span></div>
+    <div class="drawing-footer"><span>↓ Směr vlákna <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ Zrcadlově proti střihu</span></span><span class="print-legacy">{result.iterations.toLocaleString('cs')} průchodů</span></div>
+    <div class="result-summary screen-only"><span>Využití <strong>{cm(result.utilization * 100)} %</strong></span>
+      <details class="result-details"><summary>Podrobnosti</summary>
+        <dl><div><dt>Rozměr plánu</dt><dd>{cm(width)} × {cm(length)} cm</dd></div>
+          <div><dt>Spotřebovaná délka</dt><dd>{cm(result.usedLength)} cm</dd></div>
+          <div><dt>Počet pokusů hledání</dt><dd>{result.iterations.toLocaleString('cs')}</dd></div></dl></details></div>
     {result.unplaced.length > 0 && <div class="unplaced"><h4>Nevešlo se ({result.unplaced.length})</h4><ul>{table.unplaced.map((label, i) => <li key={result.unplaced[i]}>{label}</li>)}</ul></div>}
     <div class="print-only print-details">
       <p>Látka {cm(fabric.width)} cm široká{fabric.folded ? `, složená napůl (využitelná šířka ${cm(width)} cm, přehyb vlevo)` : ''}. {fabric.length === null
@@ -183,13 +188,14 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       <table class="print-table"><thead><tr><th>Díl</th><th>Velikost</th><th>Zrcadlově</th><th>{fabric.folded ? 'Od přehybu' : 'Zleva'} (cm)</th><th>Shora (cm)</th></tr></thead>
         <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}</td><td>{row.size}</td><td>{row.mirrored ? 'zrcadlově' : 'ne'}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>
     </div>
-    <div class="export-actions"><span class="muted small">Stáhnout polohový plán</span><button type="button" class="secondary" onClick={() => ref.current && exportSVG(ref.current, material)}>Export SVG</button>
+    <div class="export-actions"><span class="muted small">Stáhnout polohový plán</span>
       <button type="button" class="secondary" disabled={exporting} onClick={async () => {
         if (!ref.current) return; setExporting(true); setError('');
         try { await exportPNG(ref.current, material); } catch (e) { setError(e instanceof Error ? e.message : 'Export se nezdařil.'); }
         finally { setExporting(false); }
-      }}>{exporting ? 'Připravuji…' : 'Export PNG'}</button>
-      <button type="button" class="secondary" onClick={() => window.print()}>Vytisknout plán</button></div>
+      }}>{exporting ? 'Připravuji…' : 'Uložit obrázek'}</button>
+      <details class="more-formats"><summary>Další formáty</summary>
+        <button type="button" class="text-button" onClick={() => ref.current && exportSVG(ref.current, material)}>Vektorový obrázek (SVG)</button></details></div>
     {error && <p class="warning" role="alert">{error}</p>}
   </article>;
 }
@@ -203,6 +209,6 @@ export function EmptyLayout() {
     <path d="M205 35H268V92L254 104H218L205 92Z" style="fill:var(--piece-3);stroke:var(--sketch-3)" />
     <path d="M94 80V118M88 111L94 118 100 111M176 80V118M170 111L176 118 182 111" fill="none" style="stroke:var(--muted)" stroke-width="2" />
   </svg><p class="eyebrow">Každý centimetr se počítá</p><h3>Najděte místo pro každý díl.</h3>
-    <p>Přidejte střihy do seznamu Co šiju, zadejte látku<br />a nechte fitter hledat úsporný polohový plán.</p>
-    <span class="small muted">Demo střih je připravený k vyzkoušení.</span></div>;
+    <p>Vyberte střih, zadejte látku a stiskněte „Vytvořit polohový plán“.</p>
+    <span class="small muted">Ukázkový střih je připravený k vyzkoušení.</span></div>;
 }

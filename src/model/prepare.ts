@@ -22,6 +22,8 @@ export const defaultSettings: Settings = {
   seamAmount: 1, gap: DEFAULT_GAP_CM, resolution: 0.5, timeMs: 5000, seed: 42,
   mirroredPairs: true, rotation: '180', addSeam: {},
 };
+// Quick picks for the fabric width field (cm); pending confirmation of the values, ticket 13 (O4).
+export const FABRIC_WIDTH_PRESETS_CM = [110, 140, 150] as const;
 export const defaultFabric = (): Fabric => ({ width: 140, length: null, folded: false, directional: false });
 export const own = <T>(values: Record<string, T>, key: string): T | undefined => Object.hasOwn(values, key) ? values[key] : undefined;
 export function makeOrder(pattern: PatternFile, id: string = crypto.randomUUID()): OrderLine {
@@ -59,12 +61,19 @@ export function includedPieces(pattern: PatternFile, line: OrderLine): Piece[] {
   return available.filter(p => p.variantGroup ? choices.get(p.variantGroup) === variantLabel(p) : (own(line.include, p.id) ?? !p.optional));
 }
 const inRange = (v: number, min: number, max: number) => Number.isFinite(v) && v >= min && v <= max;
-// Checks the numbers the nester validates, so the error shows before a run instead of failing in the worker.
-export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>, materials: string[]): string | null {
+// Checks the settings the nester validates, so the error shows before a run instead of failing in the worker.
+// These fields live in the collapsed "Upřesnit" block, which opens when this returns a message.
+export function checkSettings(settings: Settings): string | null {
+  if (!inRange(settings.seamAmount, 0, 10)) return 'Přídavek na švy musí být v rozmezí 0–10 cm.';
   if (!inRange(settings.gap, 0, 10)) return 'Mezera mezi díly musí být v rozmezí 0–10 cm.';
-  if (!inRange(settings.resolution, 0.25, 1)) return 'Krok rastru musí být 0,25–1 cm.';
+  if (!inRange(settings.resolution, 0.25, 1)) return 'Přesnost musí být 0,25–1 cm.';
   if (!inRange(settings.timeMs, 0, 60_000)) return 'Čas hledání musí být v rozmezí 0–60 s.';
-  if (!Number.isFinite(settings.seed)) return 'Náhodné semínko musí být číslo.';
+  if (!Number.isFinite(settings.seed)) return 'Číslo pokusu musí být číslo.';
+  return null;
+}
+export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>, materials: string[]): string | null {
+  const problem = checkSettings(settings);
+  if (problem) return problem;
   for (const material of materials) {
     const f = own(fabrics, material) ?? defaultFabric();
     if (!(f.width > 0 && f.width <= 1000)) return `${material}: šířka látky musí být větší než 0 a nejvýše 1 000 cm.`;
@@ -72,11 +81,33 @@ export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>,
   }
   return null;
 }
+// What differs from the defaults in the "Upřesnit" block, for its header. The per-pattern seam
+// switches (addSeam) are not part of it: they sit with each pattern.
+export function changedSettings(settings: Settings): string[] {
+  const num = (n: number) => Number.isFinite(n) ? String(Math.round(n * 100) / 100).replace('.', ',') : '?';
+  const changed: string[] = [];
+  if (settings.seamAmount !== defaultSettings.seamAmount) changed.push(`přídavek na švy ${num(settings.seamAmount)} cm`);
+  if (settings.gap !== defaultSettings.gap) changed.push(`mezera ${num(settings.gap)} cm`);
+  if (settings.rotation !== defaultSettings.rotation) changed.push(settings.rotation === 'none' ? 'díly se neotáčejí' : 'díly i napříč');
+  if (settings.mirroredPairs !== defaultSettings.mirroredPairs) changed.push('páry nezrcadlově');
+  if (settings.resolution !== defaultSettings.resolution) changed.push(settings.resolution === 0.25 ? 'jemná přesnost' : settings.resolution === 1 ? 'hrubá přesnost' : `přesnost ${num(settings.resolution)} cm`);
+  if (settings.timeMs !== defaultSettings.timeMs) changed.push(`hledání ${num(settings.timeMs / 1000)} s`);
+  if (settings.seed !== defaultSettings.seed) changed.push(`číslo pokusu ${num(settings.seed)}`);
+  return changed;
+}
+// Everything but the per-pattern seam switches goes back to the defaults.
+export const resetSettings = (settings: Settings): Settings => ({ ...structuredClone(defaultSettings), addSeam: settings.addSeam });
 // Order lines that use a pattern, counted before deleting it.
 export const linesUsing = (order: OrderLine[], patternId: string): number => order.filter(line => line.patternId === patternId).length;
 export function deleteQuestion(name: string, lines: number): string {
   const rows = lines === 1 ? 'řádek' : lines < 5 ? 'řádky' : 'řádků';
   return lines ? `Smazat střih „${name}“? Zmizí i ze seznamu Co šiju (${lines} ${rows}). Nejde to vrátit.` : `Smazat střih „${name}“? Nejde to vrátit.`;
+}
+// True when the plan is exactly the untouched sample row, so a freshly saved pattern may take its place.
+export function shouldReplaceDemo(order: OrderLine[], demoId: string): boolean {
+  const [line] = order;
+  return order.length === 1 && line.patternId === demoId && line.quantity === 1 &&
+    Object.keys(line.include).length === 0 && Object.keys(line.rotations).length === 0;
 }
 const pieces = (n: number) => n === 1 ? 'kus' : n < 5 ? 'kusy' : 'kusů';
 export interface PreparedOrder {
@@ -99,7 +130,7 @@ export function prepare(
     if (!pattern) { notes.add('Vybraný střih není v knihovně. Importujte jej znovu.'); continue; }
     if (!pattern.sizes.includes(line.size)) throw new Error(`${pattern.name}: vyberte platnou velikost.`);
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 100)
-      throw new Error('Počet kusů musí být celé číslo 1–100.');
+      throw new Error('Počet kusů: zadejte celé číslo 1–100.');
     for (const piece of includedPieces(pattern, line)) {
       const shape = piece.sizes[line.size];
       const aligned = shape.fold ? alignFoldOutline(shape.outline, shape.fold) : { polygon: shape.outline, adjusted: false };
