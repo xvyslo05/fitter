@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { describe as text } from '../src/i18n';
+import { describe as text, getUnit, setUnit } from '../src/i18n';
 import { demo } from '../src/model/demo';
 import { defaultSettings, makeOrder } from '../src/model/prepare';
 import { caught } from './fixtures';
@@ -15,6 +15,20 @@ describe('workspace persistence', () => {
     workspace.settings.mirroredPairs = false;
     expect(saveWorkspace(workspace)).toBe(true);
     expect(loadWorkspace()).toEqual(workspace);
+  });
+  it('loads a workspace saved in cm identically under either unit (lengths are cm in the file)', () => {
+    const items = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => items.set(key, value) });
+    const workspace = { order: [makeOrder(demo, 'unit-order')], fabrics: { canvas: { width: 111.76, length: 91.44, folded: false, directional: false } }, settings: structuredClone(defaultSettings) };
+    setUnit('cm');
+    expect(saveWorkspace(workspace)).toBe(true);
+    const underCm = loadWorkspace(), stored = items.get('fitter:workspace:v1');
+    setUnit('in');
+    expect(getUnit()).toBe('in');
+    expect(loadWorkspace()).toEqual(underCm);
+    expect(saveWorkspace(workspace)).toBe(true);
+    expect(items.get('fitter:workspace:v1')).toBe(stored);
+    setUnit(null);
   });
   it('loads a stored fabric without directional as false', () => {
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ version: 1, order: [], fabrics: { canvas: { width: 140, length: null, folded: false } }, settings: defaultSettings }) });

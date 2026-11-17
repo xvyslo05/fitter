@@ -1,4 +1,4 @@
-import { fmt, t } from '../i18n';
+import { t } from '../i18n';
 import { chooseVariant, includedPieces, own, pieceCounts, variantChoice, variantLabel } from '../model/prepare';
 import type { OrderLine, Settings } from '../model/prepare';
 import type { PatternFile } from '../model/pattern';
@@ -36,7 +36,7 @@ export function OrderEditor({ line, patterns, settings, onChange, onRemove, onSe
       })}
       <div class="seam-row"><label class="check"><input type="checkbox" checked={own(settings.addSeam, pattern.id) ?? pattern.seamAllowance === 'none'}
         onChange={e => onSettings({ ...settings, addSeam: { ...settings.addSeam, [pattern.id]: e.currentTarget.checked } })} />
-        {Number.isFinite(settings.seamAmount) ? t('order.addSeamWithAmount', { amount: fmt.number(settings.seamAmount) }) : t('order.addSeam')}</label>
+        {Number.isFinite(settings.seamAmount) ? t('order.addSeamWithAmount', { amount: settings.seamAmount }) : t('order.addSeam')}</label>
         <button type="button" class="text-button" onClick={onEditSeam}>{t('order.editSeam')}</button></div>
       {own(settings.addSeam, pattern.id) !== undefined && <button type="button" class="text-button" onClick={() => {
         const addSeam = { ...settings.addSeam }; delete addSeam[pattern.id]; onSettings({ ...settings, addSeam });

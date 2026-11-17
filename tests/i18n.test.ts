@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cs } from '../src/i18n/cs';
 import { ERROR_CODES, PATH_FIELDS, PLURAL_CODES, note } from '../src/errors';
-import { describe as text, fmt, getLocale, plural, setLocale, t } from '../src/i18n';
+import { en } from '../src/i18n/en';
+import { describe as text, detectLocale, defaultUnit, fmt, getLocale, getUnit, parseLength, plural, setLocale, setUnit, t } from '../src/i18n';
+import { dataDefaults } from '../src/i18n/data';
 
 const entries = Object.entries(cs) as [string, string][];
 
@@ -37,7 +39,7 @@ function withoutComments(source: string): string | null {
 }
 const DIACRITIC = /[áčďéěíňóřšťúůýž]/iu;
 
-afterEach(() => setLocale('cs'));
+afterEach(() => { setLocale('cs'); setUnit(null); });
 
 describe('dictionary', () => {
   it('has no empty values', () => {
@@ -47,7 +49,7 @@ describe('dictionary', () => {
   it('uses only simple identifiers as {placeholders}', () => {
     const bad = entries.filter(([, value]) => {
       const names = [...value.matchAll(/\{([^}]*)\}/g)].map(m => m[1]);
-      return names.some(name => !/^[A-Za-z_]\w*(?::[nf]\d)?$/.test(name)) || /[{}]/.test(value.replace(/\{[A-Za-z_]\w*(?::[nf]\d)?\}/g, ''));
+      return names.some(name => !/^[A-Za-z_]\w*(?::(?:[nfld]\d|buy))?$/.test(name)) || /[{}]/.test(value.replace(/\{[A-Za-z_]\w*(?::(?:[nfld]\d|buy))?\}/g, ''));
     });
     expect(bad.map(([key]) => key)).toEqual([]);
   });
@@ -121,7 +123,7 @@ describe('locale and fmt', () => {
     expect(getLocale()).toBe('cs');
     setLocale('en');
     expect(getLocale()).toBe('en');
-    expect(t('library.title')).toBe('Moje střihy');
+    expect(t('library.title')).toBe('My patterns');
   });
 
   it('formats numbers like the code it replaced', () => {
@@ -151,6 +153,8 @@ describe('error codes', () => {
     expect(text(note('prepare.invalidSize', { pattern: 'Mikina' }))).toBe('Mikina: vyberte platnou velikost.');
     expect(text(note('delete.withLines', { name: 'A', n: 3 }))).toContain('(3 řádky)');
     expect(text(note('summary.buy', { material: 'M', metres: 1.5, width: 140.5 }))).toBe('M: kupte alespoň 1,50 m při šíři 140,5 cm.');
+    expect(text(note('settings.seamRange'))).toBe('Přídavek na švy musí být v rozmezí 0–10 cm.');
+    expect(text(note('scale.measured'))).toBe('Zadejte kladnou velikost čtverce v cm, např. 4,8.');
     expect(text(note('changed.seam', { value: NaN }))).toBe('přídavek na švy ? cm');
     expect(text(note('backup.patternNumbered', { n: 2, reason: note('pattern.invalid') }))).toBe('Střih č. 2 se nepodařilo obnovit: neplatný střih.');
   });
@@ -163,12 +167,10 @@ describe('Czech text outside the dictionary', () => {
   // Heuristic vocabularies and data defaults, not messages; matched per line so a message next to them is still found.
   const allowed: Record<string, RegExp[]> = {
     'model/demo.ts': [/./],
-    'pdf/pieces.ts': [/^export const DEFAULT_MATERIAL\b/, /^const (?:FOLD|GRAIN|MEASURE|STOP|MATERIALS)\b/, /^\[\/\^vlizel\//, /name: parsed\.name \?\? `Díl \$\{c\.id\}`/],
-    'pdf/build.ts': [/^const (?:NONE|INCLUDED|NOISE) = \//, /bez názvu/, /'Střih z PDF'/],
+    'pdf/pieces.ts': [/^const (?:FOLD|GRAIN|MEASURE|STOP|MATERIALS)\b/, /^\[\/\^vlizel\//],
+    'pdf/build.ts': [/^const (?:NONE|INCLUDED|NOISE) = \//, /bez názvu/],
     // User-typed size words ("vše" means every size).
     'pdf/trace.ts': [/^const isAll\b/],
-    // The default name of a proposed variant, like "Díl N".
-    'pdf/proposals.ts': [/label: `možnost \$\{k \+ 1\}`/],
   };
   // Own-line comments and a trailing "// ..." are not text the user sees.
   const code = (line: string) => /^\s*(?:\/\/|\/\*|\*)/.test(line) ? '' : line.replace(/\s\/\/\s.*$/, '');
@@ -187,5 +189,110 @@ describe('Czech text outside the dictionary', () => {
       const lines = readFileSync(root + name, 'utf8').split('\n').map(line => line.trim());
       for (const pattern of patterns) expect(lines.some(line => pattern.test(line) && DIACRITIC.test(line)), `${name} ${pattern}`).toBe(true);
     }
+  });
+});
+
+// ---- English, units, detection (ticket 17) ----
+const placeholders = (value: string) => [...value.matchAll(/\{([A-Za-z_]\w*)(?::[^}]*)?\}/g)].map(m => m[1]).sort().join(',');
+describe('English dictionary', () => {
+  const english = en as Record<string, string>;
+  const forms = (key: string) => key.endsWith('.few') ? [] : [key];
+  it('has exactly the keys of cs, except the Czech-only plural form .few', () => {
+    expect(Object.keys(en).sort()).toEqual(Object.keys(cs).flatMap(forms).sort());
+  });
+  it('has the same {params} per key as cs', () => {
+    const different = Object.keys(en).filter(key => placeholders(english[key]) !== placeholders((cs as Record<string, string>)[key]));
+    expect(different).toEqual([]);
+  });
+  it('has no empty value and keeps the English plural forms one and other', () => {
+    expect(Object.entries(en).filter(([, value]) => !value.trim())).toEqual([]);
+    const groups = Object.keys(en).filter(key => key.endsWith('.other')).map(key => key.slice(0, -'.other'.length));
+    for (const group of groups) expect(Object.hasOwn(en, `${group}.one`), group).toBe(true);
+    expect(Object.keys(en).filter(key => key.endsWith('.few'))).toEqual([]);
+  });
+  it('uses the glossary words and never "lay plan"', () => {
+    const all = Object.values(en).join('\n').toLowerCase();
+    expect(all).not.toContain('lay plan');
+    expect(all).toContain('cutting layout');
+    for (const word of ['grainline', 'seam allowance', 'lining']) expect(all).toContain(word);
+    expect(Object.values(en).filter(value => DIACRITIC.test(value) && value !== 'Čeština')).toEqual([]);
+  });
+  it('translates with t(), plural() and describe() when the locale is en', () => {
+    setLocale('en');
+    expect(t('library.title')).toBe('My patterns');
+    expect(plural('pdf.confirm.summary', 1)).toBe('We assembled 1 page into one sheet. Does it look right?');
+    expect(plural('pdf.confirm.summary', 2)).toBe('We assembled 2 pages into one sheet. Does it look right?');
+    expect(text(note('delete.withLines', { name: 'A', n: 1 }))).toContain('(1 row)');
+    expect(text(note('delete.withLines', { name: 'A', n: 2 }))).toContain('(2 rows)');
+    expect(text(note('summary.buy', { material: 'M', metres: 1.5, width: 140.5 }))).toBe('M: buy at least 1.50 m for a fabric width of 140.5 cm.');
+  });
+});
+
+describe('locale detection', () => {
+  it('reads the first browser language: cs and sk are Czech, everything else English', () => {
+    expect(detectLocale(['cs-CZ'])).toBe('cs');
+    expect(detectLocale(['sk'])).toBe('cs');
+    expect(detectLocale(['en-GB', 'cs'])).toBe('en');
+    expect(detectLocale(['de-DE'])).toBe('en');
+    expect(detectLocale([])).toBe('cs');
+  });
+  it('lets the stored choice win', () => {
+    expect(detectLocale(['cs-CZ'], 'en')).toBe('en');
+    expect(detectLocale(['en-US'], 'cs')).toBe('cs');
+    expect(detectLocale(['en-US'], 'fr')).toBe('en');
+  });
+  it('defaults to inches only for en-US', () => {
+    expect(defaultUnit('en', 'en-US')).toBe('in');
+    expect(defaultUnit('en', 'en-GB')).toBe('cm');
+    expect(defaultUnit('cs', 'cs-CZ')).toBe('cm');
+    expect(defaultUnit('cs', 'en-US')).toBe('cm');
+  });
+  it('keeps an explicit unit over the default', () => {
+    setLocale('en'); setUnit('cm');
+    expect(getUnit()).toBe('cm');
+    setUnit(null);
+    expect(getUnit()).toBe('cm');
+  });
+});
+
+describe('lengths and units', () => {
+  it('writes a length given in cm in the unit', () => {
+    expect(fmt.length(2.54, 'in')).toBe('1');
+    expect(fmt.length(140, 'in')).toBe('55.12'.replace('.', ','));
+    expect(fmt.length(140, 'cm')).toBe('140');
+    expect(fmt.length(1.26, 'cm')).toBe('1,3');
+  });
+  it('parses decimals with a comma or a point, and fractions', () => {
+    expect(parseLength('5/8', 'in')).toBeCloseTo(1.5875, 6);
+    expect(parseLength('1 1/2', 'in')).toBeCloseTo(3.81, 6);
+    expect(parseLength('1-1/2', 'in')).toBeCloseTo(3.81, 6);
+    expect(parseLength('12,5', 'cm')).toBe(12.5);
+    expect(parseLength('12.5', 'cm')).toBe(12.5);
+    expect(parseLength(' 2 ', 'in')).toBeCloseTo(5.08, 6);
+    for (const bad of ['', 'abc', '1/0', '1,2,3', '-3', '5 cm']) expect(parseLength(bad, 'cm'), bad).toBeNaN();
+  });
+  it('round-trips 140 cm through inches within 0.01 cm', () => {
+    setLocale('en');
+    const typed = fmt.field(140, 'in');
+    expect(Math.abs(parseLength(typed, 'in') - 140)).toBeLessThan(0.01);
+    expect(Math.abs(parseLength(fmt.field(140, 'cm'), 'cm') - 140)).toBeLessThan(0.01);
+  });
+  it('turns {x:l1} and {x:d1} into the active unit and {metres:buy} into yards', () => {
+    setLocale('en'); setUnit('in');
+    expect(t('layout.printFabric', { width: 140 })).toBe('Fabric 55.12 in wide.');
+    expect(t('layout.pieceSize', { width: 2.54, height: 5.08 })).toBe('Piece 1 × 2 in');
+    expect(t('error.summary.buy', { material: 'M', metres: 2.5, width: 140 })).toBe('M: buy at least 2.74 yd for a fabric width of 55.12 in.');
+    setUnit('cm');
+    expect(t('layout.printFabric', { width: 140 })).toBe('Fabric 140 cm wide.');
+  });
+});
+
+describe('data defaults', () => {
+  it('give new patterns an English default only while the language is English', () => {
+    expect(dataDefaults('cs')).toMatchObject({ material: 'hlavní', piece: 'Díl' });
+    expect(dataDefaults('en')).toMatchObject({ material: 'main', piece: 'Piece' });
+    expect(dataDefaults().material).toBe('hlavní');
+    setLocale('en');
+    expect(dataDefaults().material).toBe('main');
   });
 });

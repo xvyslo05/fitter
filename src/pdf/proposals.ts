@@ -1,4 +1,5 @@
 import { AppError } from '../errors';
+import { dataDefaults } from '../i18n/data';
 import { area, offset, union } from '../geom/polygon';
 import type { VariantDraft } from './pieces';
 import type { Cell, Pt } from './types';
@@ -109,6 +110,6 @@ export function proposeChain(cells: Record<string, Cell[]> | undefined, sizes: s
   if (!cells || !sizes.length || sizes.some(size => !cells[size])) return [];
   const chains = sizes.map(size => chainOrder(cells[size], cmPerPt));
   if (chains.some(chain => !chain || chain.length !== chains[0]!.length)) return [];
-  return chains[0]!.map((_, k) => ({ label: `možnost ${k + 1}`,
+  return chains[0]!.map((_, k) => ({ label: `${dataDefaults().option} ${k + 1}`,
     cells: Object.fromEntries(sizes.map((size, s) => [size, chains[s]!.slice(0, k + 1).flat()])) }));
 }

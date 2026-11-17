@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describe as render } from '../src/i18n';
+import { afterEach } from 'vitest';
+import { describe as render, setLocale } from '../src/i18n';
 import { contentPages } from '../src/pdf/match';
 import { assemblePaths } from '../src/pdf/place';
 import { CM_PER_PT } from '../src/pdf/scale';
@@ -251,5 +252,15 @@ describe('piece suggestions', () => {
     const [draft] = suggestPieces(result(a), { contentPaths: [], texts: [] });
     expect(draft.cut).toEqual([{ material: 'vnější', count: 1 }]);
     expect(draft.hint).toEqual([{ code: 'hint.noMaterial', params: { instruction: 'vystřihnout 2x' } }]);
+  });
+});
+
+describe('data defaults follow the language a pattern is created in', () => {
+  afterEach(() => setLocale('cs'));
+  it('names an unlabelled material "hlavní" in Czech and "main" in English, without touching printed material words', () => {
+    expect(parseCutLabels(['Sleeve']).cut).toEqual([{ material: 'hlavní', count: 1 }]);
+    setLocale('en');
+    expect(parseCutLabels(['Sleeve']).cut).toEqual([{ material: 'main', count: 1 }]);
+    expect(parseCutLabels(['PODŠÍVKA 2x']).cut).toEqual([{ material: 'podšívka', count: 2 }]);
   });
 });

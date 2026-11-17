@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { describe, errorText, fmt, t } from '../i18n';
+import { describe, errorText, fmt, getLocale, t } from '../i18n';
+import { useLocale } from '../i18n/hooks';
 import type { Note } from '../errors';
-import { demo } from '../model/demo';
+import type { Locale, Unit } from '../i18n';
+import { DEMO_ID, demoPattern } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
 import { fabricSummary, SHRINKAGE_NOTE } from '../model/summary';
@@ -19,7 +21,7 @@ import { OrderEditor } from './OrderEditor';
 import { PdfImport } from './PdfImport';
 import { Refine } from './Refine';
 
-const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? t('app.unknownDate') : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; };
+const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? t('app.unknownDate') : fmt.shortDate(d); };
 // "Kolik látky koupit": one sentence per material, in material order, above the drawings.
 function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<string, NestResult>; busy: boolean }) {
   const rows = jobs.flatMap(job => {
@@ -37,10 +39,12 @@ const demoIdTaken = () => t('app.demoIdTaken');
 const MOBILE_QUERY = '(max-width:560px)';
 interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: Note[] }
 export function App() {
+  // Re-renders the whole app when the language or the unit changes: every child reads the current text and unit while it renders.
+  const { locale, unit, setLocale, setUnit } = useLocale();
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace() ?? {
-    order: [makeOrder(demo)], fabrics: {}, settings: structuredClone(defaultSettings),
+    order: [makeOrder(demoPattern(getLocale()))], fabrics: {}, settings: structuredClone(defaultSettings),
   });
-  const [patterns, setPatterns] = useState<PatternFile[]>([demo]);
+  const [patterns, setPatterns] = useState<PatternFile[]>(() => [demoPattern(getLocale())]);
   const [loading, setLoading] = useState(true), [messages, setMessages] = useState<string[]>([]);
   const [storageWarning, setStorageWarning] = useState(false), [busy, setBusy] = useState(false);
   const [results, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
@@ -61,12 +65,17 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     loadLibrary().then(({ patterns, errors }) => {
-      if (!cancelled) { setPatterns([demo, ...patterns.filter(p => p.id !== demo.id)]); setMessages(errors.map(describe)); }
+      if (!cancelled) { setPatterns([demoPattern(getLocale()), ...patterns.filter(p => p.id !== DEMO_ID)]); setMessages(errors.map(describe)); }
     }).catch(() => {
       if (!cancelled) setMessages([t('app.libraryLoadFailed')]);
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; worker.current?.terminate(); };
   }, []);
+  // The built-in sample speaks the language of the screen; stored patterns are never touched.
+  useEffect(() => setPatterns(prev => {
+    const next = demoPattern(locale);
+    return prev.some(p => p.id === DEMO_ID && p.name !== next.name) ? prev.map(p => p.id === DEMO_ID ? next : p) : prev;
+  }), [locale]);
   // Prints are always light, whatever the screen theme.
   useEffect(() => {
     const light = () => applyTheme('light'), restore = () => applyTheme(themeChoice);
@@ -84,7 +93,7 @@ export function App() {
   const prepared = useMemo<{ data: PreparedOrder; error?: string }>(() => {
     try { return { data: prepare(patterns, order, fabrics, settings) }; }
     catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: errorText(e, 'app.checkOrder') }; }
-  }, [patterns, order, fabrics, settings]);
+  }, [patterns, order, fabrics, settings, locale, unit]);
   const materials = Object.keys(prepared.data.materials);
   const inputProblem = checkInputs(settings, fabrics, materials);
   const inputError = prepared.error ?? (inputProblem ? describe(inputProblem) : null);
@@ -107,7 +116,7 @@ export function App() {
         const json: unknown = JSON.parse(await file.text());
         if (isBackup(json)) { backup = parseBackup(json); continue; }
         const pattern = parsePatternFile(json);
-        if (pattern.id === demo.id) throw new Error(demoIdTaken());
+        if (pattern.id === DEMO_ID) throw new Error(demoIdTaken());
         try { await savePattern(pattern); }
         catch { messages.push(t('import.saveBlocked', { name: file.name })); }
         setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
@@ -127,10 +136,10 @@ export function App() {
     const messages: string[] = [];
     let storageFailed = false;
     if (replace) {
-      for (const old of patterns) if (old.id !== demo.id) { try { await deletePattern(old.id); } catch { storageFailed = true; } }
+      for (const old of patterns) if (old.id !== DEMO_ID) { try { await deletePattern(old.id); } catch { storageFailed = true; } }
     }
     for (const pattern of backup.patterns) { try { await savePattern(pattern); } catch { storageFailed = true; } }
-    setPatterns(prev => [demo, ...(replace ? [] : prev.filter(p => p.id !== demo.id && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
+    setPatterns(prev => [demoPattern(getLocale()), ...(replace ? [] : prev.filter(p => p.id !== DEMO_ID && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
     if (replace && backup.workspace) setWorkspace(backup.workspace);
     messages.push(t(replace && backup.workspace ? 'restore.doneWithOrder' : 'restore.done', { count: backup.patterns.length }), ...backup.errors.map(describe));
     if (storageFailed) messages.push(t('restore.storageFailed'));
@@ -138,14 +147,14 @@ export function App() {
   }
   // The PDF wizard's result goes the way of a JSON import: stored, listed, reported.
   async function savePdfPattern(pattern: PatternFile) {
-    if (pattern.id === demo.id) { setMessages([demoIdTaken()]); return; }
+    if (pattern.id === DEMO_ID) { setMessages([demoIdTaken()]); return; }
     // A new pattern takes the place of an untouched sample row; any other plan only gets the pattern in the library.
-    const replaceDemo = shouldReplaceDemo(order, demo.id);
+    const replaceDemo = shouldReplaceDemo(order, DEMO_ID);
     let message = t(replaceDemo ? 'pdfSaved.replacedDemo' : 'pdfSaved.inLibrary', { name: pattern.name });
     try { await savePattern(pattern); }
     catch { message = t('import.saveBlocked', { name: pattern.name }); }
     setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
-    if (replaceDemo) setWorkspace(prev => shouldReplaceDemo(prev.order, demo.id) ? { ...prev, order: [makeOrder(pattern)] } : prev);
+    if (replaceDemo) setWorkspace(prev => shouldReplaceDemo(prev.order, DEMO_ID) ? { ...prev, order: [makeOrder(pattern)] } : prev);
     setMessages([message]); setPdfImport(false);
   }
   async function removePattern(pattern: PatternFile) {
@@ -269,6 +278,12 @@ export function App() {
     </main>
     {pdfImport && <PdfImport patterns={patterns} onSaved={pattern => void savePdfPattern(pattern)} onClose={() => setPdfImport(false)} />}
     <footer class="site-footer"><span class="brand-small">fitter.</span><span>{t('app.footerPrivacy')}</span>
+      <label class="theme-picker"><span>{t('lang.label')}</span><select value={locale} onChange={e => setLocale(e.currentTarget.value as Locale)}>
+        <option value="cs">{t('lang.cs')}</option><option value="en">{t('lang.en')}</option>
+      </select></label>
+      <label class="theme-picker"><span>{t('unit.label')}</span><select value={unit} onChange={e => setUnit(e.currentTarget.value as Unit)}>
+        <option value="cm">{t('unit.optionCm')}</option><option value="in">{t('unit.optionIn')}</option>
+      </select></label>
       <label class="theme-picker"><span>{t('theme.label')}</span><select value={themeChoice} onChange={e => chooseTheme(e.currentTarget.value as ThemeChoice)}>
         <option value="auto">{t('theme.auto')}</option><option value="light">{t('theme.light')}</option><option value="dark">{t('theme.dark')}</option>
       </select></label></footer>

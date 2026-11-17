@@ -1,4 +1,6 @@
 import { AppError, note } from '../errors';
+import { fromUnit } from '../i18n/units';
+import type { Unit } from '../i18n/units';
 import type { Note } from '../errors';
 import { alignFoldOutline, clipAtFold, foldIsVertical, mirrorX, normalize, offset, orientFold, unfold } from '../geom/polygon';
 import type { Fabric, NestOptions, NestPiece, Rotation } from '../nest/types';
@@ -26,6 +28,9 @@ export const defaultSettings: Settings = {
 };
 // Quick picks for the fabric width field (cm); pending confirmation of the values, ticket 13 (O4).
 export const FABRIC_WIDTH_PRESETS_CM = [110, 140, 150] as const;
+// The same in inches (the usual bolt widths 44, 54 and 60 in), shown instead of the cm ones when the unit is inches; the value stays cm.
+export const FABRIC_WIDTH_PRESETS_IN = [44, 54, 60] as const;
+export const fabricWidthPresets = (unit: Unit): number[] => unit === 'in' ? FABRIC_WIDTH_PRESETS_IN.map(w => fromUnit(w, 'in')) : [...FABRIC_WIDTH_PRESETS_CM];
 export const defaultFabric = (): Fabric => ({ width: 140, length: null, folded: false, directional: false });
 export const own = <T>(values: Record<string, T>, key: string): T | undefined => Object.hasOwn(values, key) ? values[key] : undefined;
 export function makeOrder(pattern: PatternFile, id: string = crypto.randomUUID()): OrderLine {

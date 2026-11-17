@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describe as text } from '../src/i18n';
-import { demo } from '../src/model/demo';
+import { demo, demoPattern } from '../src/model/demo';
 import { parsePatternFile } from '../src/model/pattern';
 import { caught } from './fixtures';
 
@@ -71,5 +71,17 @@ describe('parsePatternFile', () => {
     const input = structuredClone(demo);
     input.pieces[0].sizes.uni.fold = [[0.08, 0], [0.08, 34]];
     expect(parsePatternFile(input).pieces[0].sizes.uni.fold).toEqual([[0.08, 0], [0.08, 34]]);
+  });
+});
+
+describe('demo pattern per locale', () => {
+  it('keeps id, piece ids, sizes and geometry in both languages and parses', () => {
+    const en = demoPattern('en');
+    expect(en.id).toBe(demo.id);
+    expect(en.pieces.map(p => p.id)).toEqual(demo.pieces.map(p => p.id));
+    expect(en.pieces.map(p => p.sizes)).toEqual(demo.pieces.map(p => p.sizes));
+    expect(en.name).not.toBe(demo.name);
+    expect(parsePatternFile(structuredClone(en)).pieces).toHaveLength(5);
+    expect(demoPattern('cs')).toEqual(demo);
   });
 });

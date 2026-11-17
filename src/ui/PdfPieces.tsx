@@ -7,6 +7,7 @@ import type { Edge, PieceDraft, RectangleDraft, VariantDraft } from '../pdf/piec
 import type { Cell, PieceCandidate, Pt, TraceResult } from '../pdf/types';
 import { cellOwners, isConnected, mapCells } from '../pdf/variants';
 import { sizeColor } from '../theme';
+import { LengthInput } from './fields';
 
 const points = (ring: Pt[]) => ring.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const degrees = (n: number) => Number.isFinite(n) ? Math.round(n * 10) / 10 : '';
@@ -149,7 +150,7 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
         onChange={e => onChange({ foldEdge: e.currentTarget.checked ? longest : null })} />
         <span>{t('pdf.fold.label')}<small>{t(edges.length ? 'pdf.fold.pick' : 'pdf.fold.none')}</small></span></label>
       {draft.foldEdge !== null && <label class="field"><span>{t('pdf.fold.edge')}</span><select value={draft.foldEdge} onChange={e => onChange({ foldEdge: Number(e.currentTarget.value) })}>
-        {edges.map((e, j) => <option key={j} value={j}>{t('pdf.fold.edgeOption', { n: j + 1, length: fmt.length(e.length * k) })}</option>)}
+        {edges.map((e, j) => <option key={j} value={j}>{t('pdf.fold.edgeOption', { n: j + 1, length: e.length * k })}</option>)}
       </select></label>}
       {missing.length > 0 && <p class="warning small">{t('pdf.fold.missing', { sizes: missing.join(', ') })}</p>}
       <div class="pdf-grain" role="group" aria-label={t('pdf.grain.groupLabel', { id: candidate.id })}><span class="pdf-label">{t('pdf.grain.title')}</span>
@@ -194,7 +195,7 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
   </article>;
 }
 
-// Dimensions typed in cm; a decimal comma is accepted by the number field.
+// Dimensions typed in the unit on screen; a decimal comma is accepted, and fractions in inches.
 function RectangleCard({ index, rectangle, onChange, onRemove }: {
   index: number; rectangle: RectangleDraft; onChange: (patch: Partial<RectangleDraft>) => void; onRemove: () => void;
 }) {
@@ -204,8 +205,7 @@ function RectangleCard({ index, rectangle, onChange, onRemove }: {
   const setSize = (size: string, patch: Partial<{ width: number; height: number }>) => onChange({ sizes: { ...rectangle.sizes, [size]: { ...rectangle.sizes[size], ...patch } } });
   const setAll = (patch: Partial<{ width: number; height: number }>) => onChange({ sizes: Object.fromEntries(sizes.map(size => [size, { ...rectangle.sizes[size], ...patch }])) });
   const length = (label: string, value: number, onInput: (n: number) => void) => <label class="field"><span>{label}</span>
-    <span class="input-unit"><input type="number" min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(value) ? value : ''}
-      onInput={e => onInput(e.currentTarget.valueAsNumber)} /><span aria-hidden="true">{t('unit.cm')}</span></span></label>;
+    <span class="input-unit"><LengthInput max={RECTANGLE_MAX_CM} value={value} onChange={onInput} /><span aria-hidden="true">{fmt.unit()}</span></span></label>;
   const problems = rectangleProblems(rectangle).map(describe);
   return <article class="pdf-piece" aria-label={t('pdf.rect.label', { n: index + 1 })}>
     <div class="pdf-piece-heading"><h4>{t('pdf.rect.title', { n: index + 1 })}</h4>
@@ -228,10 +228,8 @@ function RectangleCard({ index, rectangle, onChange, onRemove }: {
         <span>{t('pdf.rect.perSize')}</span></label>
       {rectangle.perSize && <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>{t('pdf.rect.colSize')}</th><th>{t('pdf.rect.colWidth')}</th><th>{t('pdf.rect.colLength')}</th></tr></thead>
         <tbody>{sizes.map(size => <tr key={size}><th>{size}</th>
-          <td><input type="number" aria-label={t('pdf.rect.widthFor', { size })} min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(rectangle.sizes[size].width) ? rectangle.sizes[size].width : ''}
-            onInput={e => setSize(size, { width: e.currentTarget.valueAsNumber })} /></td>
-          <td><input type="number" aria-label={t('pdf.rect.lengthFor', { size })} min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(rectangle.sizes[size].height) ? rectangle.sizes[size].height : ''}
-            onInput={e => setSize(size, { height: e.currentTarget.valueAsNumber })} /></td></tr>)}</tbody></table></div>}
+          <td><LengthInput label={t('pdf.rect.widthFor', { size })} max={RECTANGLE_MAX_CM} value={rectangle.sizes[size].width} onChange={width => setSize(size, { width })} /></td>
+          <td><LengthInput label={t('pdf.rect.lengthFor', { size })} max={RECTANGLE_MAX_CM} value={rectangle.sizes[size].height} onChange={height => setSize(size, { height })} /></td></tr>)}</tbody></table></div>}
       <label class="check"><input type="checkbox" checked={rectangle.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
         <span>{t('pdf.optional.label')}<small>{t('pdf.optional.hint')}</small></span></label>
       <div class="field-row"><label class="field"><span>{t('pdf.group.label')}</span><input type="text" value={rectangle.variantGroup} placeholder={t('pdf.group.placeholder')} maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>

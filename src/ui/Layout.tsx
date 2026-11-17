@@ -1,6 +1,9 @@
 import { useId, useRef, useState } from 'preact/hooks';
 import { bbox } from '../geom/polygon';
 import { describe, fmt, t } from '../i18n';
+import { useLocale } from '../i18n/hooks';
+import { fromUnit, toUnit } from '../i18n/units';
+import type { Unit } from '../i18n/units';
 import type { Pt } from '../model/pattern';
 import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
 import { lengthToBuy, placedSentence } from '../model/summary';
@@ -32,7 +35,12 @@ export function pieceTable(pieces: NestPiece[], result: NestResult, mirroredKeys
 // Colours are palette tokens (styles.css); exports replace them with the light values.
 const colors = Array.from({ length: 6 }, (_, i) => `var(--piece-${i + 1})`);
 const cm = fmt.length;
-const ticks = (length: number) => Array.from({ length: Math.floor(length / 10) + 1 }, (_, i) => i * 10);
+const percent = (ratio: number) => fmt.plain(ratio * 100, 1);
+// Ruler marks every 10 cm, or every 5 in when the unit is inches; positions are cm, the label is the mark in the unit.
+export const ticks = (length: number, unit: Unit) => {
+  const step = fromUnit(unit === 'in' ? 5 : 10, unit);
+  return Array.from({ length: Math.floor(length / step + 1e-9) + 1 }, (_, i) => ({ at: i * step, label: String(Math.round(toUnit(i * step, unit) * 100) / 100) }));
+};
 function labelPoint(polygon: Pt[]): Pt {
   const b = bbox(polygon), y = (b.minY + b.maxY) / 2, crossings: number[] = [];
   polygon.forEach((a, i) => {
@@ -70,6 +78,7 @@ function Dimension({ x1, y1, x2, y2, label }: { x1: number; y1: number; x2: numb
 export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
   material: string; fabric: Fabric; pieces: NestPiece[]; result: NestResult; mirroredKeys: string[];
 }) {
+  const { unit } = useLocale();
   const ref = useRef<SVGSVGElement>(null), [error, setError] = useState(''), [exporting, setExporting] = useState(false);
   const [pointer, setPointer] = useState<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -91,24 +100,24 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
   return <article class="result-card">
     <div class="result-heading"><div><p class="eyebrow">{t(fabric.folded ? 'layout.twoLayers' : 'layout.oneLayer')} · {describe(placedSentence(result.placements.length, pieces.length))}</p><h3>{material}</h3></div>
       <span class={`badge print-legacy ${result.unplaced.length ? 'amber' : ''}`}>{t('layout.placedBadge', { placed: result.placements.length, total: pieces.length })}</span></div>
-    <dl class="stats print-legacy"><div><dt>{t('layout.dimensions')}</dt><dd>{cm(width)} × {cm(length)} <small>cm</small></dd></div>
-      <div><dt>{t('layout.usedLength')}</dt><dd>{cm(result.usedLength)} <small>cm</small></dd></div>
-      <div><dt>{t('layout.utilization')}</dt><dd>{cm(result.utilization * 100)} <small>%</small></dd></div></dl>
-    {fabric.folded && <p class="small muted result-note">{t('layout.widthBeforeFold', { width: cm(fabric.width) })}</p>}
+    <dl class="stats print-legacy"><div><dt>{t('layout.dimensions')}</dt><dd>{cm(width)} × {cm(length)} <small>{fmt.unit(unit)}</small></dd></div>
+      <div><dt>{t('layout.usedLength')}</dt><dd>{cm(result.usedLength)} <small>{fmt.unit(unit)}</small></dd></div>
+      <div><dt>{t('layout.utilization')}</dt><dd>{percent(result.utilization)} <small>%</small></dd></div></dl>
+    {fabric.folded && <p class="small muted result-note">{t('layout.widthBeforeFold', { width: fabric.width })}</p>}
     <div class="layout-canvas">
       <svg ref={ref} xmlns="http://www.w3.org/2000/svg" class="layout-svg" role="img" aria-label={t('layout.svgLabel', { material })}
         viewBox={`-17 -14 ${width + 23} ${displayLength + 20}`} width={`${width + 23}cm`} height={`${displayLength + 20}cm`}
         onPointerMove={track} onPointerDown={track} onPointerLeave={() => { setPointer(null); setActive(null); }}>
-        <desc>{t('layout.svgDesc', { material, width: cm(width), length: cm(length), utilization: cm(result.utilization * 100) })}</desc>
+        <desc>{t('layout.svgDesc', { material, width, length, utilization: percent(result.utilization) })}</desc>
         <defs><pattern id={hatch} width="1.6" height="1.6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <line x1="0" y1="0" x2="0" y2="1.6" style="stroke:var(--ink)" stroke-width="0.35" /></pattern></defs>
         <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} style="fill:var(--fabric)" />
         <g font-family="system-ui, sans-serif" font-size="2.3" style="fill:var(--muted);stroke:var(--fabric-grid)" stroke-width="0.16">
-          {ticks(width).map(x => <g key={`x${x}`}><line x1={x} x2={x} y1={-3} y2={displayLength} stroke-dasharray="0.5 1" />
-            <text x={x} y={-5} text-anchor="middle" stroke="none">{x}</text></g>)}
-          {ticks(displayLength).map(y => <g key={`y${y}`}><line x1={-3} x2={width} y1={y} y2={y} stroke-dasharray="0.5 1" />
-            <text x={-5} y={y + 0.8} text-anchor="end" stroke="none">{y}</text></g>)}
-          <text x={-8} y={-7} stroke="none" font-size="2">{t('unit.cm')}</text>
+          {ticks(width, unit).map(({ at, label }) => <g key={`x${label}`}><line x1={at} x2={at} y1={-3} y2={displayLength} stroke-dasharray="0.5 1" />
+            <text x={at} y={-5} text-anchor="middle" stroke="none">{label}</text></g>)}
+          {ticks(displayLength, unit).map(({ at, label }) => <g key={`y${label}`}><line x1={-3} x2={width} y1={at} y2={at} stroke-dasharray="0.5 1" />
+            <text x={-5} y={at + 0.8} text-anchor="end" stroke="none">{label}</text></g>)}
+          <text x={-8} y={-7} stroke="none" font-size="2">{fmt.unit(unit)}</text>
         </g>
         <rect x={0} y={0} width={width} height={displayLength} fill="none" style="stroke:var(--ink)" stroke-width="0.35" />
         {result.placements.map(placement => {
@@ -168,24 +177,24 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         {hot && active && <>
           <strong>{pieceMap.get(active)?.label.split(' · ').slice(1).join(' · ')}</strong>
           {turned.has(active) && pieceMap.has(active) && <span class={turned.get(active)!.mirrored ? 'tip-mirrored' : undefined}>{orientationText(turned.get(active)!, layers(pieceMap.get(active)!))}</span>}
-          <span>{t('layout.pieceSize', { width: cm(hot.width), height: cm(hot.height) })}</span>
+          <span>{t('layout.pieceSize', { width: hot.width, height: hot.height })}</span>
           <span>{fabric.length !== null
-            ? t('layout.tipPositionBottom', { fromLeft, left: cm(hot.minX), fromRight, right: cm(width - hot.maxX), top: cm(hot.minY), bottom: cm(length - hot.maxY) })
-            : t('layout.tipPositionTop', { fromLeft, left: cm(hot.minX), fromRight, right: cm(width - hot.maxX), top: cm(hot.minY) })}</span>
+            ? t('layout.tipPositionBottom', { fromLeft, left: hot.minX, fromRight, right: width - hot.maxX, top: hot.minY, bottom: length - hot.maxY })
+            : t('layout.tipPositionTop', { fromLeft, left: hot.minX, fromRight, right: width - hot.maxX, top: hot.minY })}</span>
         </>}
-        <span class="tip-point">{t('layout.tipPoint', { fromLeft, x: cm(pointer.x), fromRight, right: cm(width - pointer.x), y: cm(pointer.y) })}</span>
+        <span class="tip-point">{t('layout.tipPoint', { fromLeft, x: pointer.x, fromRight, right: width - pointer.x, y: pointer.y })}</span>
       </div>}
     </div>
     <div class="drawing-footer"><span>↓ {t('layout.grain')} <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ {t('layout.legendMirrored')}</span></span><span class="print-legacy">{t('layout.iterations', { count: fmt.number(result.iterations) })}</span></div>
-    <div class="result-summary screen-only"><span>{t('layout.utilization')} <strong>{cm(result.utilization * 100)} %</strong></span>
+    <div class="result-summary screen-only"><span>{t('layout.utilization')} <strong>{percent(result.utilization)} %</strong></span>
       <details class="result-details"><summary>{t('layout.details')}</summary>
-        <dl><div><dt>{t('layout.planSize')}</dt><dd>{cm(width)} × {cm(length)} cm</dd></div>
-          <div><dt>{t('layout.usedLength')}</dt><dd>{cm(result.usedLength)} cm</dd></div>
+        <dl><div><dt>{t('layout.planSize')}</dt><dd>{cm(width)} × {cm(length)} {fmt.unit(unit)}</dd></div>
+          <div><dt>{t('layout.usedLength')}</dt><dd>{cm(result.usedLength)} {fmt.unit(unit)}</dd></div>
           <div><dt>{t('layout.attempts')}</dt><dd>{fmt.number(result.iterations)}</dd></div></dl></details></div>
     {result.unplaced.length > 0 && <div class="unplaced"><h4>{t('layout.unplaced', { count: result.unplaced.length })}</h4><ul>{table.unplaced.map((label, i) => <li key={result.unplaced[i]}>{label}</li>)}</ul></div>}
     <div class="print-only print-details">
-      <p>{fabric.folded ? t('layout.printFabricFolded', { width: cm(fabric.width), usable: cm(width) }) : t('layout.printFabric', { width: cm(fabric.width) })} {fabric.length === null
-        ? t('layout.printBuy', { length: cm(lengthToBuy(result.usedLength)) }) : t('layout.printFixed', { length: cm(fabric.length), used: cm(result.usedLength) })}</p>
+      <p>{fabric.folded ? t('layout.printFabricFolded', { width: fabric.width, usable: width }) : t('layout.printFabric', { width: fabric.width })} {fabric.length === null
+        ? t('layout.printBuy', { length: lengthToBuy(result.usedLength) }) : t('layout.printFixed', { length: fabric.length, used: result.usedLength })}</p>
       <p class="small">{t('layout.printScaleNote')}</p>
       <table class="print-table"><thead><tr><th>{t('layout.colPiece')}</th><th>{t('layout.colSize')}</th><th>{t('layout.colMirrored')}</th><th>{t(fabric.folded ? 'layout.colFromFold' : 'layout.colFromLeft')}</th><th>{t('layout.colTop')}</th></tr></thead>
         <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}</td><td>{row.size}</td><td>{t(row.mirrored ? 'layout.mirroredYes' : 'layout.mirroredNo')}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>

@@ -12,7 +12,9 @@ import type { PieceDraft, RectangleDraft } from '../pdf/pieces';
 import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
 import { area, bbox } from '../geom/polygon';
 import { AppError } from '../errors';
-import { describe, errorText, fmt, plural, t } from '../i18n';
+import { describe, errorText, fmt, getUnit, parseLength, plural, t, toUnit } from '../i18n';
+import { dataDefaults } from '../i18n/data';
+import { useLocale } from '../i18n/hooks';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
@@ -301,7 +303,7 @@ function SquarePicture({ doc, scale }: { doc: PdfDoc; scale: ScaleResult }) {
   }, [doc, scale, theme]);
   return <canvas ref={canvas} class="pdf-square-picture" role="img" aria-label={t('pdf.square.label', { page: scale.page ?? '' })} />;
 }
-const cmText = (cm: number) => fmt.number(Math.round(cm * 100) / 100, 2);
+const cmText = (cm: number) => fmt.length(cm, getUnit(), 2);
 
 // Asks whether the print matches the detected scale instead of showing numbers.
 function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, pieceOk, onPieceOk, percent, onPercent }: {
@@ -314,7 +316,7 @@ function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, 
     <button type="button" class={value === false ? 'primary' : 'secondary'} aria-pressed={value === false} onClick={() => set(false)}>{nope}</button></div>;
   if (detected.source === 'square' && detected.squareCm) return <div class="pdf-scale-question">
     {detected.squarePt && <SquarePicture doc={doc} scale={detected} />}
-    <p id={name}><strong>{t('pdf.scale.squareQuestion', { cm: cmText(detected.squareCm) })}</strong></p>
+    <p id={name}><strong>{t('pdf.scale.squareQuestion', { size: detected.squareCm })}</strong></p>
     {buttons(!no, v => onNo(!v), t('pdf.yes'), t('pdf.noUnsure'))}
     {no && <label class="field"><span>{t('pdf.scale.measured')}</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
       <span class="small muted">{t('pdf.scale.measureHint')}</span></label>}
@@ -383,7 +385,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [sheet, detected]);
   const settings = useMemo(() => {
     try {
-      const answer: ScaleAnswer = detected.source === 'square' ? (scaleNo && measured.trim() ? { ok: false, measuredCm: parseDecimal(measured) } : { ok: true })
+      const answer: ScaleAnswer = detected.source === 'square' ? (scaleNo && measured.trim() ? { ok: false, measuredCm: parseLength(measured, getUnit()) } : { ok: true })
         : pieceOk === false && percent.trim() ? { percent: parseDecimal(percent) } : { ok: true };
       const resolved = resolveScale(detected, answer);
       if ('error' in resolved) return { options: null, message: describe(resolved.error) };
@@ -417,7 +419,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); worker?.terminate(); };
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
-  const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
+  const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt, { unit } = useLocale();
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
     <h3>{t('pdf.sizes.title')}</h3><p class="small muted">{t('pdf.sizes.help')}</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>{t('pdf.legend.style')}</th><th>{t('pdf.legend.paths')}</th><th>{t('pdf.legend.size')}</th></tr></thead>
@@ -426,7 +428,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
         {entry.kind === 'fill' ? <rect x="4" y="11" width="88" height="2" fill={inkColor(entry.color, theme === 'dark')} />
           : <line x1="4" y1="12" x2="92" y2="12" stroke={inkColor(entry.color, theme === 'dark')} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
       </svg><span class="small muted">{entry.kind === 'fill' ? t('pdf.legend.fill') : `${entry.width.toFixed(2)} pt`}</span></td>
-        <td>{entry.paths}<span class="small muted">{(entry.lengthPt * cmPerPt).toFixed(1)} cm</span></td>
+        <td>{entry.paths}<span class="small muted">{toUnit(entry.lengthPt * cmPerPt, unit).toFixed(1)} {fmt.unit(unit)}</span></td>
         <td><input aria-label={t('pdf.legend.sizeFor', { n: i + 1 })} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={80} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
     <h3>{t('pdf.scale.title')}</h3>
     <ScaleQuestion doc={doc} detected={detected} result={result} no={scaleNo} onNo={setScaleNo} measured={measured} onMeasured={setMeasured}
@@ -451,7 +453,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
       <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>{t('pdf.found.piece')}</th><th>{t('pdf.found.size')}</th><th>{t('pdf.found.area')}</th><th>{t('pdf.found.dimensions')}</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {
           const b = bbox(ring), k = result.cmPerPt;
-          return <tr key={`${c.id}:${size}`}><th>{c.id}</th><td style={{ color: sizeColor(result.sizes.indexOf(size)) }}>{size}</td><td>{(area(ring) * k * k).toFixed(1)}</td><td>{(b.width * k).toFixed(1)} × {(b.height * k).toFixed(1)}</td></tr>;
+          return <tr key={`${c.id}:${size}`}><th>{c.id}</th><td style={{ color: sizeColor(result.sizes.indexOf(size)) }}>{size}</td><td>{fmt.area(area(ring) * k * k, unit).toFixed(1)}</td><td>{toUnit(b.width * k, unit).toFixed(1)} × {toUnit(b.height * k, unit).toFixed(1)}</td></tr>;
         }))}</tbody></table></div>}</section>}
   </div></div>;
 }
@@ -525,7 +527,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
   function toSave() {
     if (!meta && traced) {
       const title = patternName(doc?.title, name);
-      setMeta({ name: title, id: uniqueId(slug(title) || 'strih-z-pdf', patterns.map(p => p.id)), author: '', seamAllowance: suggestedSeam, sizes: sortSizes(traced.sizes) });
+      setMeta({ name: title, id: uniqueId(slug(title) || slug(dataDefaults().pattern), patterns.map(p => p.id)), author: '', seamAllowance: suggestedSeam, sizes: sortSizes(traced.sizes) });
     }
     setStage(4);
   }

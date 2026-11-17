@@ -1,4 +1,5 @@
 import { note } from '../errors';
+import { dataDefaults } from '../i18n/data';
 import type { Note } from '../errors';
 import { area, pointSegmentDistance } from '../geom/polygon';
 import { containsPoint } from './group';
@@ -30,7 +31,7 @@ export interface RectangleDraft {
   perSize: boolean; optional: boolean; variantGroup: string; variant: string;
 }
 export const RECTANGLE_MAX_CM = 1000;
-export const newRectangle = (sizes: string[]): RectangleDraft => ({ name: '', cut: [{ material: DEFAULT_MATERIAL, count: 1 }],
+export const newRectangle = (sizes: string[]): RectangleDraft => ({ name: '', cut: [{ material: dataDefaults().material, count: 1 }],
   sizes: Object.fromEntries(sizes.map(size => [size, { width: NaN, height: NaN }])), perSize: false, optional: false, variantGroup: '', variant: '' });
 export function rectangleProblems(rectangle: RectangleDraft): Note[] {
   const problems: Note[] = [];
@@ -47,7 +48,7 @@ export interface Edge { a: Pt; b: Pt; length: number }
 export interface PieceSheet { contentPaths: PdfPath[]; texts: PdfText[] }
 
 const SAME_OUTLINE_CM = 0.1, FOLD_MIN_CM = 5, GRAIN_MIN_CM = 3, ARROW_MIN_CM = 1.5, NEAR_CM = 2, FOLD_SNAP_CM = 0.25;
-export const DEFAULT_MATERIAL = 'hlavní';
+// The material a piece gets when its labels name none is `dataDefaults().material` (i18n/data.ts): 'hlavní' in Czech, 'main' in English.
 
 // JS \b is ASCII-only; letter lookarounds keep Czech/German words whole.
 const FOLD = /bruch|(?<!\p{L})(?:st\.?\s?br|fold(?:ed)?|lom|lomu|přelož\p{L}*|přehyb\p{L}*|pli)(?!\p{L})/iu;
@@ -116,7 +117,7 @@ function nameLike(label: string): boolean {
 // (a) a known material named in another label of the piece (e.g. "UCHO V PODŠÍVCE") without its own count;
 // (b) nowhere if `defaultMaterial` already has a printed count on the piece: `hint` asks the user to check;
 // (c) otherwise `defaultMaterial`. Nothing parsed: hlavní × 1.
-export function parseCutLabels(labels: string[], defaultMaterial = DEFAULT_MATERIAL, titles: ReadonlySet<string> = new Set()) {
+export function parseCutLabels(labels: string[], defaultMaterial = dataDefaults().material, titles: ReadonlySet<string> = new Set()) {
   const counts = new Map<string, number>(), loose: { label: string; count: number }[] = [];
   for (const label of labels) for (const { material, count } of instructions(label)) {
     if (material) counts.set(material, Math.max(counts.get(material) ?? 0, count)); else loose.push({ label, count });
@@ -131,7 +132,7 @@ export function parseCutLabels(labels: string[], defaultMaterial = DEFAULT_MATER
     else counts.set(defaultMaterial, count);
   }
   const cut = [...counts].map(([material, count]) => ({ material, count }));
-  return { name: labels.find(l => !titles.has(l) && nameLike(l)), cut: cut.length ? cut : [{ material: DEFAULT_MATERIAL, count: 1 }],
+  return { name: labels.find(l => !titles.has(l) && nameLike(l)), cut: cut.length ? cut : [{ material: dataDefaults().material, count: 1 }],
     fold: labels.some(l => FOLD.test(l)), ...(hint ? { hint } : {}) };
 }
 
@@ -303,7 +304,7 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
   });
   const printed = new Map<string, number>();
   for (const { material } of ordered.flat().flatMap(instructions)) if (material) printed.set(material, (printed.get(material) ?? 0) + 1);
-  const common = [...printed].sort((a, b) => b[1] - a[1])[0]?.[0] ?? DEFAULT_MATERIAL;
+  const common = [...printed].sort((a, b) => b[1] - a[1])[0]?.[0] ?? dataDefaults().material;
   // A fold word belongs to the piece that contains it, or else to the nearest piece within 2 cm.
   const foldTexts = new Map<number, Pt[]>();
   for (const t of sheet.texts.filter(t => FOLD.test(t.str))) {
@@ -325,7 +326,7 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     const hint = [parsed.hint, c.sizesUnclear ? note('hint.sizesUnclear') : undefined].filter((n): n is Note => n !== undefined);
     // Stacked strips: cells in a chain become variants.
     const variants = include && !c.sizesUnclear ? proposeChain(c.cells, Object.keys(c.sizes), k) : [];
-    return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
+    return { candidateId: c.id, include, name: parsed.name ?? `${dataDefaults().piece} ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
       optional: false, variantGroup: '', variant: '', variants, ...(hint.length ? { hint } : {}), ...(same ? { allSizes: true } : {}) };
   });
 }

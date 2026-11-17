@@ -1,6 +1,8 @@
 import { AppError, toNote } from '../errors';
 import type { ErrorCode, Note } from '../errors';
 import { area, bbox, rotate, signedArea } from '../geom/polygon';
+import { dataDefaults } from '../i18n/data';
+import { getLocale } from '../i18n';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile, Piece, PieceSize, SeamAllowance } from '../model/pattern';
 import { unionCells } from './proposals';
@@ -151,7 +153,7 @@ export function suggestSeamAllowance(texts: PdfText[]): SeamAllowance {
 const LETTERS = ['XXXS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL'];
 // Numbers numerically, then letter sizes XS < S < M < L < XL < XXL (2XL = XXL), then other text.
 export function sortSizes(sizes: string[]): string[] {
-  const collator = new Intl.Collator('cs', { numeric: true, sensitivity: 'base' });
+  const collator = new Intl.Collator(getLocale(), { numeric: true, sensitivity: 'base' });
   const rank = (size: string): [number, number] => {
     const s = size.trim(), letter = LETTERS.indexOf(s.toUpperCase().replace(/^(\d)X(?=[SL]$)/, (_, n: string) => 'X'.repeat(Number(n))));
     return /^\d+(?:[.,]\d+)?$/.test(s) ? [0, Number(s.replace(',', '.'))] : letter >= 0 ? [1, letter] : [2, 0];
@@ -177,5 +179,5 @@ export function patternName(title: string | undefined, fileName: string): string
     : fileName.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   let rest = ` ${name}`;
   while (NOISE.test(rest)) rest = rest.replace(NOISE, '');
-  return rest.trim() || name || 'Střih z PDF';
+  return rest.trim() || name || dataDefaults().pattern;
 }

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describe as text } from '../src/i18n';
 import { demo } from '../src/model/demo';
-import { DEFAULT_GAP_CM, FABRIC_WIDTH_PRESETS_CM, changedSettings, checkInputs, checkSettings, resetSettings, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, shouldReplaceDemo, variantChoice } from '../src/model/prepare';
+import { DEFAULT_GAP_CM, FABRIC_WIDTH_PRESETS_CM, changedSettings, fabricWidthPresets, checkInputs, checkSettings, resetSettings, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, shouldReplaceDemo, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece, caught } from './fixtures';
@@ -233,6 +233,10 @@ describe('pieceCounts', () => {
   it('pins the fabric width presets and keeps the default width among them', () => {
     expect([...FABRIC_WIDTH_PRESETS_CM]).toEqual([110, 140, 150]);
     expect(FABRIC_WIDTH_PRESETS_CM).toContain(defaultFabric().width);
+  });
+  it('offers 44, 54 and 60 inch widths (stored as cm) under the inch unit', () => {
+    expect(fabricWidthPresets('cm')).toEqual([110, 140, 150]);
+    expect(fabricWidthPresets('in').map(w => Math.round(w / 2.54))).toEqual([44, 54, 60]);
   });
   it('lists what differs from the default settings, without the per-pattern seam switches', () => {
     expect(changedSettings(structuredClone(defaultSettings))).toEqual([]);

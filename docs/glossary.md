@@ -83,6 +83,19 @@ Důvěra: **high** = termín jsem přímo viděl v textu zdroje (nebo ve více z
 | **překryv** / **přesah** (okraj stránky) | overlap | Burda: "přesah" (horní hrana papíru). | medium | BURDA |
 | **varianta / verze** (např. krátký rukáv) | version / view (např. "View A") | "Možnosti dílu" (app) zní nepřirozeně. Šikulky píší "verze" ("zjednodušená verze", "verze s podsádkou"). "Provedení" jsem nepotvrdil. | low-medium | SIKULKY, EMBORADO ("view") |
 
+### Doplněno při anglické lokalizaci (ticket 17)
+
+Ověřeno jen vyhledáváním (2026-11-17); stránky s nízkou kvalitou jsem nepoužil. Zdroje: SEWCALCS https://sewcalcs.pages.dev/reference/fabric-widths a MELLY https://mellysews.com/?p=22770 (jen úryvky z vyhledávání, stránky neotevřeny), MINDY https://mindymakes.com/what-is-a-yard-of-fabric-conversion-table-and-related-questions-a-beginners-guide/.
+
+| Česky | English (použito v UI) | Poznámka | Důvěra | Zdroje |
+|---|---|---|---|---|
+| **šířka látky 44 / 54 / 60 palců** (předvolby v palcích) | fabric width 44/45", 54", 58-60" | Bavlna na patchwork bývá 44/45", oděvní a dekorační 54-60". Zdroje se v přesných číslech rozcházejí; předvolby 44, 54, 60 jsou zaokrouhlené. Použitelná šířka je menší než šířka role (kraje). | medium | SEWCALCS, MELLY, MINDY |
+| **délka ke koupi (yardy)** | yardage; length to buy in yards (yd) | 1 yd = 36 in = 0,9144 m. Aplikace zaokrouhluje nahoru na 0,01 yd. | medium (termín yardage), high (převod) | MELLY, MINDY |
+| **po niti (podélně) / napříč** | lengthwise grain / crosswise grain (crossgrain) | Podélná nit je rovnoběžná s krajem, napříč je kolmá a více se natahuje. | medium | MELLY, MINDY |
+| **využití (podíl plochy)** | efficiency | V UI "Efficiency" jako zkratka za marker efficiency; pro domácí šičky je to srozumitelnější než "utilization". | medium | OCS |
+| **varianta dílu (např. krátký rukáv)** | version (of a piece) | Z "version / view" v glosáři výše; "variant" a "options" se v anglických střizích nepoužívají. | low-medium | EMBORADO, SIKULKY |
+| **Co šiju** (seznam střihů k vystříhání) | What I'm sewing | Vlastní název aplikace, ne obor; záměrně ne "order". | low | (bez zdroje) |
+
 ## Notes for UI wording
 
 Řazeno podle důležitosti. "Navrhuji" = rozhodnutí patří vlastníkovi produktu.
