@@ -58,6 +58,15 @@ export function offset(p: Pt[], amount: number): Pt[] {
 export function union(a: Pt[], b: Pt[]): Pt[] {
   return outer(Clipper.Union(paths([a, b]), undefined, FillRule.NonZero));
 }
+// Union of any number of rings as one simple ring; throws when the parts are not connected or enclose a hole.
+export function unionAll(polygons: Pt[][]): Pt[] {
+  if (!polygons.length) throw new Error('Není vybrána žádná část.');
+  const united = Clipper.Union(paths(polygons), undefined, FillRule.NonZero);
+  const rings = fromPaths(united.map(ring => Clipper.trimCollinear(ring)));
+  if (rings.filter(r => signedArea(r) > 0).length > 1) throw new Error('Vybrané části na sebe nenavazují.');
+  if (rings.some(r => signedArea(r) < 0)) throw new Error('Vybrané části uzavírají otvor.');
+  return outer(united);
+}
 export function intersectionArea(a: Pt[], b: Pt[]): number {
   return Math.abs(fromPaths(Clipper.Intersect(paths([a]), paths([b]), FillRule.NonZero))
     .reduce((sum, p) => sum + signedArea(p), 0));

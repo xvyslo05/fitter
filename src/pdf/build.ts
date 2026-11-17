@@ -1,7 +1,7 @@
-import { area, bbox, rotate, signedArea } from '../geom/polygon';
+import { area, bbox, rotate, signedArea, unionAll } from '../geom/polygon';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile, Piece, PieceSize, SeamAllowance } from '../model/pattern';
-import { openRing, sizeFolds } from './pieces';
+import { foldEdges, openRing, sizeFolds, snapFoldAt } from './pieces';
 import type { PieceDraft, RectangleDraft } from './pieces';
 import type { PdfText, Pt, TraceResult } from './types';
 
@@ -25,27 +25,58 @@ function centroid(ring: Pt[]): Pt {
 // Rectangles are built from their measurements: width across, length along the grain (+y).
 export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: PatternMeta, rectangles: RectangleDraft[] = []): PatternFile {
   const k = result.cmPerPt, ids = new Set<string>();
-  const pieces = drafts.filter(d => d.include).map((draft): Piece => {
+  const pieces = drafts.filter(d => d.include).flatMap((draft): Piece[] => {
     const candidate = result.candidates.find(c => c.id === draft.candidateId);
     if (!candidate) throw new Error(`Díl ${draft.candidateId} už mezi kandidáty není.`);
     const origin = centroid(openRing(candidate.sizes[candidate.refSize])), folds = sizeFolds(candidate, draft.foldEdge, k);
     const place = (points: Pt[]): Pt[] => rotate(points.map(([x, y]) => [x - origin[0], y - origin[1]]), 90 - draft.grainAngle).map(([x, y]) => [x * k, y * k]);
-    const sizes: Record<string, PieceSize> = {};
-    for (const size of meta.sizes.filter(s => draft.allSizes || Object.hasOwn(candidate.sizes, s))) {
-      const from = draft.allSizes ? candidate.refSize : size;
-      const placed = place(openRing(candidate.sizes[from])), b = bbox(placed);
+    const shape = (ring: Pt[], fold: [Pt, Pt] | null | undefined): PieceSize => {
+      const placed = place(openRing(ring)), b = bbox(placed);
       const move = ([x, y]: Pt): Pt => [round(x - b.minX), round(y - b.minY)];
       const outline = placed.map(move).filter((p, i, all) => { const q = all[(i + 1) % all.length]; return p[0] !== q[0] || p[1] !== q[1]; });
       if (signedArea(outline) > 0) outline.reverse();
-      const fold = folds[from], bounds = bbox(outline);
-      sizes[size] = { outline, ...(fold ? { fold: place(fold).map(move) as [Pt, Pt] } : {}),
+      const bounds = bbox(outline);
+      return { outline, ...(fold ? { fold: place(fold).map(move) as [Pt, Pt] } : {}),
         bbox: [round(bounds.width, 1), round(bounds.height, 1)], area: round(area(outline), 1) };
+    };
+    const common = { cut: draft.cut.map(c => ({ material: c.material.trim(), count: c.count })), ...(draft.optional ? { optional: true } : {}) };
+    const sizeList = meta.sizes.filter(s => draft.allSizes || Object.hasOwn(candidate.sizes, s));
+    if (!draft.variants.length) {
+      const sizes: Record<string, PieceSize> = {};
+      for (const size of sizeList) {
+        const from = draft.allSizes ? candidate.refSize : size;
+        sizes[size] = shape(candidate.sizes[from], folds[from]);
+      }
+      const id = uniqueId(slug(draft.name) || `dil-${candidate.id}`, ids);
+      ids.add(id);
+      return [{ id, name: draft.name.trim(), ...common, ...(draft.variantGroup.trim() ? { variantGroup: draft.variantGroup.trim() } : {}),
+        ...(draft.variant.trim() ? { variant: draft.variant.trim() } : {}), sizes }];
     }
-    const id = uniqueId(slug(draft.name) || `dil-${candidate.id}`, ids);
-    ids.add(id);
-    return { id, name: draft.name.trim(), cut: draft.cut.map(c => ({ material: c.material.trim(), count: c.count })),
-      ...(draft.optional ? { optional: true } : {}), ...(draft.variantGroup.trim() ? { variantGroup: draft.variantGroup.trim() } : {}),
-      ...(draft.variant.trim() ? { variant: draft.variant.trim() } : {}), sizes };
+    // One piece per variant: the union of its cells, the fold snapped to that outline.
+    const edge = draft.foldEdge === null ? undefined : foldEdges(candidate, k)[draft.foldEdge];
+    const group = draft.variantGroup.trim() || draft.name.trim();
+    return draft.variants.map((variant): Piece => {
+      const label = variant.label.trim(), where = `Díl „${draft.name.trim()}“, varianta „${label}“`;
+      if (!label) throw new Error(`Díl „${draft.name.trim()}“: varianta nemá název.`);
+      const sizes: Record<string, PieceSize> = {};
+      for (const size of sizeList) {
+        const from = draft.allSizes ? candidate.refSize : size, selected = variant.cells[from];
+        if (!selected?.length) continue;
+        const cells = selected.map(cellId => {
+          const cell = candidate.cells?.[from]?.find(c => c.id === cellId);
+          if (!cell) throw new Error(`${where}, velikost ${size}: buňka ${cellId} neexistuje.`);
+          return openRing(cell.ring);
+        });
+        let ring: Pt[];
+        try { ring = unionAll(cells); }
+        catch (e) { throw new Error(`${where}, velikost ${size}: ${e instanceof Error ? e.message : String(e)}`); }
+        sizes[size] = shape(ring, snapFoldAt(ring, edge, k));
+      }
+      if (!Object.keys(sizes).length) throw new Error(`${where}: žádná velikost nemá vybrané buňky.`);
+      const id = uniqueId(`${slug(draft.name) || `dil-${candidate.id}`}-${slug(label) || 'varianta'}`, ids);
+      ids.add(id);
+      return { id, name: `${draft.name.trim()} – ${label}`, ...common, variantGroup: group, variant: label, sizes };
+    });
   });
   rectangles.forEach((rectangle, i) => {
     const sizes: Record<string, PieceSize> = {};

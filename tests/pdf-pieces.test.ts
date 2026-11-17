@@ -182,7 +182,7 @@ describe('piece suggestions', () => {
     // The most frequent printed material (a tie keeps the first) fills counts without a material.
     expect(drafts[1].cut).toEqual([{ material: 'vnější', count: 2 }]);
     expect(drafts[3].cut).toEqual([{ material: 'hlavní', count: 1 }]);
-    expect(drafts[0]).toMatchObject({ candidateId: 1, foldEdge: null, grainAngle: 90, optional: false, variantGroup: '', variant: '' });
+    expect(drafts[0]).toMatchObject({ candidateId: 1, foldEdge: null, grainAngle: 90, optional: false, variantGroup: '', variant: '', variants: [] });
     expect(drafts.some(d => 'hint' in d)).toBe(false);
   });
   it('passes the check hint of an instruction without material to the draft', () => {

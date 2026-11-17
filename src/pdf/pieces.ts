@@ -2,6 +2,8 @@ import { area, pointSegmentDistance } from '../geom/polygon';
 import { containsPoint } from './group';
 import type { Cell, PdfPath, PdfText, PieceCandidate, Pt, TraceResult } from './types';
 
+// One variant of a piece: the cells (ids from candidate.cells[size]) whose union is its outline, per size.
+export interface VariantDraft { label: string; cells: Record<string, number[]> }
 export interface PieceDraft {
   candidateId: number; include: boolean; name: string;
   cut: { material: string; count: number }[];
@@ -13,6 +15,9 @@ export interface PieceDraft {
   hint?: string;
   // The reference outline is used for every size of the pattern.
   allSizes?: boolean;
+  // Empty = the whole outline (variantGroup / variant above may still group pieces by hand); otherwise one
+  // piece per variant, all in group variantGroup (the piece name when empty).
+  variants: VariantDraft[];
 }
 // A piece given by measurements: width across, height along the grain, in cm, per size.
 export interface RectangleDraft {
@@ -171,10 +176,11 @@ export function snapFold(ring: Pt[], [a, b]: [Pt, Pt], tolerancePt: number): [Pt
   return hi - lo > 1e-6 ? [[cx + lo * dx, cy + lo * dy], [cx + hi * dx, cy + hi * dy]] : null;
 }
 // Fold per size: the chosen reference edge snapped to every size's own outline (null = not found).
+export const snapFoldAt = (ring: Pt[], edge: Edge | undefined, cmPerPt: number): [Pt, Pt] | null =>
+  edge ? snapFold(ring, [edge.a, edge.b], FOLD_SNAP_CM / cmPerPt) : null;
 export function sizeFolds(candidate: PieceCandidate, foldEdge: number | null, cmPerPt: number): Record<string, [Pt, Pt] | null> {
   const edge = foldEdge === null ? undefined : foldEdges(candidate, cmPerPt)[foldEdge];
-  return Object.fromEntries(Object.entries(candidate.sizes).map(([size, ring]) =>
-    [size, edge ? snapFold(ring, [edge.a, edge.b], FOLD_SNAP_CM / cmPerPt) : null]));
+  return Object.fromEntries(Object.entries(candidate.sizes).map(([size, ring]) => [size, snapFoldAt(ring, edge, cmPerPt)]));
 }
 
 // Straight lines fully inside the reference outline and not on any size's cutting line (furniture is
@@ -304,6 +310,6 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     const same = Object.keys(c.sizes).length < result.sizes.length && Object.values(c.sizes).every(ring => sameOutline(openRing(ring), rings[i], SAME_OUTLINE_CM / k));
     const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels) && !gridLike(c.cells?.[c.refSize]);
     return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
-      optional: false, variantGroup: '', variant: '', ...(parsed.hint ? { hint: parsed.hint } : {}), ...(same ? { allSizes: true } : {}) };
+      optional: false, variantGroup: '', variant: '', variants: [], ...(parsed.hint ? { hint: parsed.hint } : {}), ...(same ? { allSizes: true } : {}) };
   });
 }

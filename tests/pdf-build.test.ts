@@ -17,7 +17,7 @@ function rotated(origin: Pt, width: number, length: number, degrees: number): Pt
   return [...ring, ring[0]];
 }
 const draft = (candidateId: number, patch: Partial<PieceDraft> = {}): PieceDraft => ({ candidateId, include: true, name: 'Přední díl',
-  cut: [{ material: 'vnější', count: 2 }], foldEdge: null, grainAngle: 90, optional: false, variantGroup: '', variant: '', ...patch });
+  cut: [{ material: 'vnější', count: 2 }], foldEdge: null, grainAngle: 90, optional: false, variantGroup: '', variant: '', variants: [], ...patch });
 // Size L 10 × 20 cm and size M 8 × 18 cm sharing the long edge, both with the length at 30° in the sheet.
 const result: TraceResult = { cmPerPt: k, sizes: ['L', 'M'], candidates: [
   { id: 1, refSize: 'L', sizes: { L: rotated([50, 40], 10, 20, 30), M: rotated([50 + Math.cos(Math.PI / 6), 40 + Math.sin(Math.PI / 6)], 8, 18, 30) }, labels: [] },
@@ -71,6 +71,43 @@ describe('buildPattern', () => {
     expect(pattern).toMatchObject({ format: 'fitter-pattern@1', id: 'test', name: 'Testovací střih', source: 'strih.pdf', seamAllowance: 'none', sizes: ['M', 'L'] });
     expect(pattern).not.toHaveProperty('author');
     expect(parsePatternFile(JSON.parse(JSON.stringify(pattern)))).toEqual(pattern);
+  });
+});
+
+describe('variants', () => {
+  // 30 × 20 cm piece (length along x) cut in three stacked cells of 20, 6 and 4 cm length.
+  const cell = (id: number, from: number, to: number) => ({ id, ring: [[pt(from), 0], [pt(to), 0], [pt(to), pt(20)], [pt(from), pt(20)], [pt(from), 0]] as Pt[],
+    areaPt2: 0, neighbours: [], touchesOutside: true });
+  const stacked: TraceResult = { cmPerPt: k, sizes: ['L'], candidates: [{ id: 1, refSize: 'L', sizes: { L: rotated([0, 0], 20, 30, 0) },
+    cells: { L: [cell(1, 0, 20), cell(2, 20, 26), cell(3, 26, 30)] }, labels: [] }] };
+  const variants = (...picks: [string, number[]][]) => picks.map(([label, ids]) => ({ label, cells: { L: ids } }));
+  const three = variants(['krátký', [1]], ['střední', [1, 2]], ['dlouhý', [1, 2, 3]]);
+  const build = (patch: Partial<PieceDraft>) => buildPattern(stacked, [draft(1, { name: 'Rukáv', grainAngle: 0, ...patch })], { ...meta, sizes: ['L'] });
+  it('writes one piece per variant in one group', () => {
+    const pattern = parsePatternFile(build({ variants: three }));
+    expect(pattern.pieces.map(p => [p.id, p.name, p.variantGroup, p.variant])).toEqual([
+      ['rukav-kratky', 'Rukáv – krátký', 'Rukáv', 'krátký'], ['rukav-stredni', 'Rukáv – střední', 'Rukáv', 'střední'], ['rukav-dlouhy', 'Rukáv – dlouhý', 'Rukáv', 'dlouhý']]);
+    pattern.pieces.forEach((p, i) => expect(Math.abs(p.sizes.L.area - [400, 520, 600][i])).toBeLessThan([4, 5.2, 6][i]));
+    expect(build({ variants: three, variantGroup: 'Délka' }).pieces.every(p => p.variantGroup === 'Délka')).toBe(true);
+  });
+  it('names piece, variant and size when the selection is disconnected', () => {
+    expect(() => build({ variants: variants(['dlouhý', [1, 3]]) })).toThrow('Díl „Rukáv“, varianta „dlouhý“, velikost L: Vybrané části na sebe nenavazují.');
+    expect(() => build({ variants: variants(['x', [9]]) })).toThrow('buňka 9 neexistuje');
+  });
+  it('omits sizes a variant has no cells for', () => {
+    const two: TraceResult = { ...stacked, sizes: ['L', 'M'], candidates: [{ ...stacked.candidates[0], sizes: { L: stacked.candidates[0].sizes.L, M: stacked.candidates[0].sizes.L },
+      cells: { L: stacked.candidates[0].cells!.L, M: stacked.candidates[0].cells!.L } }] };
+    const pattern = buildPattern(two, [draft(1, { variants: [{ label: 'a', cells: { L: [1] } }, { label: 'b', cells: { L: [1], M: [1, 2] } }] })], { ...meta, sizes: ['L', 'M'] });
+    expect(pattern.pieces.map(p => Object.keys(p.sizes))).toEqual([['L'], ['L', 'M']]);
+  });
+  it('keeps a draft without variants as before', () => {
+    expect(buildPattern(stacked, [draft(1, { variantGroup: 'Rukáv', variant: 'celý' })], meta).pieces.map(p => [p.id, p.variantGroup, p.variant])).toEqual([['predni-dil', 'Rukáv', 'celý']]);
+  });
+  it('snaps the fold to each variant', () => {
+    const edges = foldEdges(stacked.candidates[0], k), edge = edges.findIndex(e => e.length * k > 29 && Math.abs(e.a[1]) < 1 && Math.abs(e.b[1]) < 1);
+    expect(edge).toBeGreaterThanOrEqual(0);
+    const pattern = parsePatternFile(build({ variants: three, foldEdge: edge }));
+    pattern.pieces.forEach((p, i) => { const [a, b] = p.sizes.L.fold!; expect(Math.hypot(b[0] - a[0], b[1] - a[1])).toBeCloseTo([20, 26, 30][i], 1); });
   });
 });
 
