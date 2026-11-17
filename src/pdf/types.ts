@@ -26,8 +26,9 @@ export interface TraceOptions { resolutionMm: number; gapMm: number; minAreaCm2:
 // neighbours list the cells it shares a border with (sharedPt = border length); touchesOutside: borders the sheet outside the piece.
 export interface Cell { id: number; ring: Pt[]; areaPt2: number; neighbours: { id: number; sharedPt: number }[]; touchesOutside: boolean }
 // cells (per size, same pieces as sizes): the regions inside the outline; ids are unique within one outline's cells.
-export interface PieceCandidate { id: number; refSize: string; sizes: Record<string, Pt[]>; cells?: Record<string, Cell[]>; labels: string[] }
-export interface TraceResult { cmPerPt: number; sizes: string[]; candidates: PieceCandidate[] }
+// sizesUnclear: drawn in a style several sizes share, but the sizes could not be told apart (proposals.ts).
+export interface PieceCandidate { id: number; refSize: string; sizes: Record<string, Pt[]>; cells?: Record<string, Cell[]>; labels: string[]; sizesUnclear?: boolean }
+export interface TraceResult { cmPerPt: number; resolutionMm?: number; sizes: string[]; candidates: PieceCandidate[] }
 export interface TraceRequest {
   paths: PdfPath[]; texts: PdfText[]; assignments: Record<string, string>; options: TraceOptions;
   scale?: ScaleResult; excludeScaleMarks?: boolean;

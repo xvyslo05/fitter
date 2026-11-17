@@ -1,5 +1,6 @@
 import { area, pointSegmentDistance } from '../geom/polygon';
 import { containsPoint } from './group';
+import { proposeChain } from './proposals';
 import type { Cell, PdfPath, PdfText, PieceCandidate, Pt, TraceResult } from './types';
 
 // One variant of a piece: the cells (ids from candidate.cells[size]) whose union is its outline, per size.
@@ -309,7 +310,10 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     const grainAngle = line ? axisAngle(line.a, line.b) : fold ? axisAngle(fold.a, fold.b) : 90;
     const same = Object.keys(c.sizes).length < result.sizes.length && Object.values(c.sizes).every(ring => sameOutline(openRing(ring), rings[i], SAME_OUTLINE_CM / k));
     const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels) && !gridLike(c.cells?.[c.refSize]);
+    const hint = [parsed.hint, c.sizesUnclear ? 'Velikosti se nepodařilo rozlišit – vyberte je ručně.' : undefined].filter(Boolean).join(' ');
+    // Stacked strips: cells in a chain become variants.
+    const variants = include && !c.sizesUnclear ? proposeChain(c.cells, Object.keys(c.sizes), k) : [];
     return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
-      optional: false, variantGroup: '', variant: '', variants: [], ...(parsed.hint ? { hint: parsed.hint } : {}), ...(same ? { allSizes: true } : {}) };
+      optional: false, variantGroup: '', variant: '', variants, ...(hint ? { hint } : {}), ...(same ? { allSizes: true } : {}) };
   });
 }

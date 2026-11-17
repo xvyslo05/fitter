@@ -3,6 +3,8 @@ import { strokeMetrics } from './stroke';
 import { styleKeyOf, styleLegend } from './styles';
 import { groupPieces } from './group';
 import { withoutScaleMarks } from './scale';
+import { nestedOutlines, singleCell } from './proposals';
+import { sortSizes } from './build';
 import type { Cell, PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceRequest, TraceResult } from './types';
 
 // Binary disk morphology. Horizontal runs keep work proportional to radius,
@@ -382,17 +384,37 @@ export function withoutLettering(paths: PdfPath[]): PdfPath[] {
 
 export function traceSizes({ paths, texts, assignments, options, scale, excludeScaleMarks = true }: TraceRequest): TraceResult {
   const named = [...new Set(Object.values(assignments).flatMap(v => sizeTokens(v).filter(t => !isAll(t))))];
-  const selected = new Map<string, PdfPath[]>();
+  const selected = new Map<string, PdfPath[]>(), byStyle = new Map<string, PdfPath[]>(), styles = new Map<string, Set<string>>();
   for (const path of withoutLettering(excludeScaleMarks ? withoutScaleMarks(paths, texts, scale) : paths)) {
-    for (const size of assignedSizes(assignments[styleKeyOf(path)], named)) {
+    const key = styleKeyOf(path);
+    for (const size of assignedSizes(assignments[key], named)) {
       const group = selected.get(size) ?? []; group.push(path); selected.set(size, group);
+      styles.set(size, (styles.get(size) ?? new Set()).add(key));
     }
+    if (assignments[key]) byStyle.set(key, [...byStyle.get(key) ?? [], path]);
   }
   const sizes = [...named, ...(named.length ? [] : ['uni'])].filter(size => selected.has(size));
-  const shapes = Object.fromEntries(sizes.map(size => [size, traceShapes(selected.get(size)!, options)]));
+  const shapes: Record<string, TracedShape[]> = {}, unclear = new Set<Pt[]>();
+  // A style listing several sizes, and nothing else drawn in them, is traced once: its cells are ordered
+  // outward from the largest, each level being the next larger size (proposals.ts).
+  for (const [key, value] of Object.entries(assignments)) {
+    const listed = sizeTokens(value);
+    if (listed.length < 2 || listed.some(isAll) || !byStyle.has(key)) continue;
+    const own = sortSizes(assignedSizes(value, named));
+    if (own.length < 2 || own.some(size => styles.get(size)?.size !== 1)) continue;
+    for (const size of own) shapes[size] = [];
+    for (const shape of traceShapes(byStyle.get(key)!, options)) {
+      const rings = nestedOutlines(shape.cells, own.length, options.cmPerPt, options.resolutionMm);
+      if (!rings) unclear.add(shape.ring);
+      own.forEach((size, k) => shapes[size].push(rings === 'single' || !rings ? shape : { ring: rings[k], cells: singleCell(rings[k]) }));
+    }
+  }
+  for (const size of sizes) shapes[size] ??= traceShapes(selected.get(size)!, options);
   const outlines = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.ring)]));
   const cells = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.cells)]));
-  return { cmPerPt: options.cmPerPt, sizes, candidates: groupPieces(outlines, texts, cells) };
+  const candidates = groupPieces(outlines, texts, cells);
+  for (const c of candidates) if (Object.values(c.sizes).some(ring => unclear.has(ring))) c.sizesUnclear = true;
+  return { cmPerPt: options.cmPerPt, resolutionMm: options.resolutionMm, sizes, candidates };
 }
 
 // Overlapping pieces of every size in one line style trace as blobs with very many cells (Alexia: 163 and 90

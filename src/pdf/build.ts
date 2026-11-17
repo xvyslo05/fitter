@@ -1,6 +1,7 @@
-import { area, bbox, rotate, signedArea, unionAll } from '../geom/polygon';
+import { area, bbox, rotate, signedArea } from '../geom/polygon';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile, Piece, PieceSize, SeamAllowance } from '../model/pattern';
+import { unionCells } from './proposals';
 import { foldEdges, openRing, sizeFolds, snapFoldAt } from './pieces';
 import type { PieceDraft, RectangleDraft } from './pieces';
 import type { PdfText, Pt, TraceResult } from './types';
@@ -68,7 +69,7 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
           return openRing(cell.ring);
         });
         let ring: Pt[];
-        try { ring = unionAll(cells); }
+        try { ring = unionCells(cells, k, result.resolutionMm ?? 0.5); }
         catch (e) { throw new Error(`${where}, velikost ${size}: ${e instanceof Error ? e.message : String(e)}`); }
         sizes[size] = shape(ring, snapFoldAt(ring, edge, k));
       }

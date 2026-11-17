@@ -90,6 +90,13 @@ describe('variants', () => {
     pattern.pieces.forEach((p, i) => expect(Math.abs(p.sizes.L.area - [400, 520, 600][i])).toBeLessThan([4, 5.2, 6][i]));
     expect(build({ variants: three, variantGroup: 'Délka' }).pieces.every(p => p.variantGroup === 'Délka')).toBe(true);
   });
+  it('joins traced cells whose rings are one pixel apart', () => {
+    const gap = 0.5 / 10 / k;  // one 0.5 mm pixel, like neighbouring traced rings
+    const apart: TraceResult = { ...stacked, resolutionMm: 0.5, candidates: [{ ...stacked.candidates[0],
+      cells: { L: [cell(1, 0, 20), { ...cell(2, 0, 0), ring: cell(2, 20, 26).ring.map(([x, y]): Pt => [x + gap, y]) }] } }] };
+    const pattern = buildPattern(apart, [draft(1, { grainAngle: 0, variants: variants(['dlouhý', [1, 2]]) })], { ...meta, sizes: ['L'] });
+    expect(Math.abs(pattern.pieces[0].sizes.L.area - 520)).toBeLessThan(10);
+  });
   it('names piece, variant and size when the selection is disconnected', () => {
     expect(() => build({ variants: variants(['dlouhý', [1, 3]]) })).toThrow('Díl „Rukáv“, varianta „dlouhý“, velikost L: Vybrané části na sebe nenavazují.');
     expect(() => build({ variants: variants(['x', [9]]) })).toThrow('buňka 9 neexistuje');
@@ -107,7 +114,7 @@ describe('variants', () => {
     const edges = foldEdges(stacked.candidates[0], k), edge = edges.findIndex(e => e.length * k > 29 && Math.abs(e.a[1]) < 1 && Math.abs(e.b[1]) < 1);
     expect(edge).toBeGreaterThanOrEqual(0);
     const pattern = parsePatternFile(build({ variants: three, foldEdge: edge }));
-    pattern.pieces.forEach((p, i) => { const [a, b] = p.sizes.L.fold!; expect(Math.hypot(b[0] - a[0], b[1] - a[1])).toBeCloseTo([20, 26, 30][i], 1); });
+    pattern.pieces.forEach((p, i) => { const [a, b] = p.sizes.L.fold!; expect(Math.abs(Math.hypot(b[0] - a[0], b[1] - a[1]) - [20, 26, 30][i])).toBeLessThan(0.15); });
   });
 });
 
