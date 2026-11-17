@@ -2,8 +2,8 @@ import { useRef, useState } from 'preact/hooks';
 import type { PatternFile } from '../model/pattern';
 import { demo } from '../model/demo';
 
-export function Library({ patterns, loading, onImport, onImportPdf, onAdd, onDelete }: {
-  patterns: PatternFile[]; loading: boolean; onImportPdf: () => void; onImport: (files: File[]) => Promise<void>;
+export function Library({ patterns, loading, onImport, onImportPdf, onBackup, onAdd, onDelete }: {
+  patterns: PatternFile[]; loading: boolean; onImportPdf: () => void; onBackup: () => void; onImport: (files: File[]) => Promise<void>;
   onAdd: (pattern: PatternFile) => void; onDelete: (pattern: PatternFile) => void;
 }) {
   const input = useRef<HTMLInputElement>(null), [dragging, setDragging] = useState(false);
@@ -13,13 +13,15 @@ export function Library({ patterns, loading, onImport, onImportPdf, onAdd, onDel
         e.preventDefault(); setDragging(false);
         if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
       }}>
-      <span class="import-icon" aria-hidden="true">↥</span><div><strong>Vaše střihy mají místo tady</strong><p>Přetáhněte soubory .json nebo je vyberte.</p></div>
+      <span class="import-icon" aria-hidden="true">↥</span><div><strong>Vaše střihy mají místo tady</strong><p>Přetáhněte soubory .json (i zálohu) nebo je vyberte.</p></div>
       <button type="button" class="secondary" disabled={loading} onClick={() => input.current?.click()}>{loading ? 'Načítání…' : 'Importovat střihy'}</button>
       <input ref={input} class="visually-hidden" type="file" accept=".json,application/json" multiple aria-label="Importovat soubory střihů" onChange={e => {
         const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void onImport(files);
       }} />
     </div>
     <button type="button" class="secondary pdf-import-button" onClick={onImportPdf}>Importovat PDF…</button>
+    <div class="field-row"><button type="button" class="text-button" onClick={onBackup}>Zálohovat vše do souboru</button>
+      <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>Obnovit ze zálohy</button></div>
     <div class="library-list">{patterns.map(p => <div class="library-item" key={p.id}>
       <div class="grow"><strong>{p.name}</strong><p>{p.id === demo.id ? 'Syntetické demo' : p.author ?? 'Vlastní střih'} · {p.pieces.length} dílů · {p.sizes.join(', ')}</p></div>
       <button type="button" class="text-button" onClick={() => onAdd(p)} aria-label={`Přidat ${p.name} do zakázky`}>+ Přidat</button>

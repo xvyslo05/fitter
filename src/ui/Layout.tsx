@@ -14,6 +14,19 @@ export function orientationText({ mirrored, turn }: { mirrored: boolean; turn: n
   return layers === 'folded' ? `${base} · spodní vrstva dá zrcadlový díl` : layers === 'fold' ? `${base} · na lomu` : base;
 }
 
+export interface PieceRow { key: string; name: string; size: string; mirrored: boolean; left: number; top: number }
+// Rows of the printed piece list (labels are "střih · díl · velikost #n"; positions are the piece's
+// bounding box from the fabric's left edge and top, in cm to 1 decimal) and the labels that did not fit.
+export function pieceTable(pieces: NestPiece[], result: NestResult, mirroredKeys: string[]): { rows: PieceRow[]; unplaced: string[] } {
+  const labels = new Map(pieces.map(p => [p.key, p.label])), mirroredSet = new Set(mirroredKeys), round = (n: number) => Math.round(n * 10) / 10;
+  const rows = result.placements.map((placement): PieceRow => {
+    const parts = (labels.get(placement.key) ?? placement.key).split(' · '), b = bbox(placement.polygon);
+    return { key: placement.key, name: parts.length > 2 ? parts.slice(1, -1).join(' · ') : parts[parts.length - 1], size: parts.length > 2 ? parts[parts.length - 1].replace(/ #\d+$/, '') : '',
+      mirrored: orientation(mirroredSet.has(placement.key), placement).mirrored, left: round(b.minX), top: round(b.minY) };
+  });
+  return { rows, unplaced: result.unplaced.map(key => labels.get(key) ?? key) };
+}
+
 // Colours are palette tokens (styles.css); exports replace them with the light values.
 const colors = Array.from({ length: 6 }, (_, i) => `var(--piece-${i + 1})`);
 const cm = (n: number) => new Intl.NumberFormat('cs', { maximumFractionDigits: 1 }).format(n);
@@ -65,7 +78,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
   const layers = (p: NestPiece) => p.foldEdge ? 'fold' : fabric.folded ? 'folded' : 'single', hatch = `mirror-${useId()}`;
   const xMarks = breakpoints([...edges.values()].flatMap(b => [b.minX, b.maxX]), 4.5);
   const yMarks = breakpoints([...edges.values()].flatMap(b => [b.minY, b.maxY]), 2.4);
-  const hot = active ? edges.get(active) : undefined;
+  const table = pieceTable(pieces, result, mirroredKeys), hot = active ? edges.get(active) : undefined;
   const fromLeft = fabric.folded ? 'od lomu' : 'zleva', fromRight = fabric.folded ? 'od kraje' : 'zprava';
   function track(e: PointerEvent) {
     const matrix = ref.current?.getScreenCTM();
@@ -161,13 +174,21 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
       </div>}
     </div>
     <div class="drawing-footer"><span>↓ Směr vlákna <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ Zrcadlově proti střihu</span></span><span>{result.iterations.toLocaleString('cs')} průchodů</span></div>
-    {result.unplaced.length > 0 && <div class="unplaced"><h4>Nevešlo se ({result.unplaced.length})</h4><ul>{result.unplaced.map(key => <li key={key}>{pieceMap.get(key)?.label ?? key}</li>)}</ul></div>}
+    {result.unplaced.length > 0 && <div class="unplaced"><h4>Nevešlo se ({result.unplaced.length})</h4><ul>{table.unplaced.map((label, i) => <li key={result.unplaced[i]}>{label}</li>)}</ul></div>}
+    <div class="print-only print-details">
+      <p>Látka {cm(fabric.width)} cm široká{fabric.folded ? `, složená napůl (využitelná šířka ${cm(width)} cm, lom vlevo)` : ''}. {fabric.length === null
+        ? `Délka ke koupi: alespoň ${cm(Math.ceil(result.usedLength))} cm.` : `Pevný kus o délce ${cm(fabric.length)} cm, spotřebováno ${cm(result.usedLength)} cm.`}</p>
+      <p class="small">Nákres je zmenšený, řiďte se kótami.</p>
+      <table class="print-table"><thead><tr><th>Díl</th><th>Velikost</th><th>Zrcadlově</th><th>{fabric.folded ? 'Od lomu' : 'Zleva'} (cm)</th><th>Shora (cm)</th></tr></thead>
+        <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}</td><td>{row.size}</td><td>{row.mirrored ? 'zrcadlově' : 'ne'}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>
+    </div>
     <div class="export-actions"><span class="muted small">Stáhnout rozložení</span><button type="button" class="secondary" onClick={() => ref.current && exportSVG(ref.current, material)}>Export SVG</button>
       <button type="button" class="secondary" disabled={exporting} onClick={async () => {
         if (!ref.current) return; setExporting(true); setError('');
         try { await exportPNG(ref.current, material); } catch (e) { setError(e instanceof Error ? e.message : 'Export se nezdařil.'); }
         finally { setExporting(false); }
-      }}>{exporting ? 'Připravuji…' : 'Export PNG'}</button></div>
+      }}>{exporting ? 'Připravuji…' : 'Export PNG'}</button>
+      <button type="button" class="secondary" onClick={() => window.print()}>Vytisknout plán</button></div>
     {error && <p class="warning" role="alert">{error}</p>}
   </article>;
 }

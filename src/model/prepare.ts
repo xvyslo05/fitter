@@ -16,8 +16,10 @@ export interface Settings extends NestOptions {
   rotation: Rotation;
   addSeam: Record<string, boolean>;
 }
+// Default gap between pieces in cm; pending confirmation, ticket 28.
+export const DEFAULT_GAP_CM = 0.5;
 export const defaultSettings: Settings = {
-  seamAmount: 1, gap: 0.5, resolution: 0.5, timeMs: 5000, seed: 42,
+  seamAmount: 1, gap: DEFAULT_GAP_CM, resolution: 0.5, timeMs: 5000, seed: 42,
   mirroredPairs: true, rotation: '180', addSeam: {},
 };
 export const defaultFabric = (): Fabric => ({ width: 140, length: null, folded: false, directional: false });

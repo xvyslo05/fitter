@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
-import { checkInputs, defaultFabric, defaultSettings, makeOrder, own, prepare } from '../model/prepare';
+import { DEFAULT_GAP_CM, checkInputs, defaultFabric, defaultSettings, makeOrder, own, prepare } from '../model/prepare';
 import type { PreparedOrder } from '../model/prepare';
 import type { Fabric, NestJob, NestResult, WorkerResponse } from '../nest/types';
-import { deletePattern, loadLibrary, loadWorkspace, savePattern, saveWorkspace } from '../storage';
-import type { Workspace } from '../storage';
+import { MAX_IMPORT_BYTES, backupFileName, deletePattern, exportBackup, isBackup, loadLibrary, loadWorkspace, parseBackup, savePattern, saveWorkspace } from '../storage';
+import type { ParsedBackup, Workspace } from '../storage';
 import { applyTheme, loadThemeChoice, saveThemeChoice } from '../theme';
 import type { ThemeChoice } from '../theme';
 import { NumberField, RotationSelect } from './fields';
@@ -15,6 +15,7 @@ import { Library } from './Library';
 import { OrderEditor } from './OrderEditor';
 import { PdfImport } from './PdfImport';
 
+const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? 'neznámého data' : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; };
 interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: string[] }
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace() ?? {
@@ -26,7 +27,7 @@ export function App() {
   const [results, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null), [status, setStatus] = useState('');
   const [elapsed, setElapsed] = useState(0), [pdfImport, setPdfImport] = useState(false);
-  const [themeChoice, setThemeChoice] = useState(loadThemeChoice);
+  const [themeChoice, setThemeChoice] = useState(loadThemeChoice), [restore, setRestore] = useState<ParsedBackup | null>(null);
   const worker = useRef<Worker | null>(null), resultsSection = useRef<HTMLElement>(null);
   const { order, fabrics, settings } = workspace;
   useEffect(() => {
@@ -38,6 +39,12 @@ export function App() {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; worker.current?.terminate(); };
   }, []);
+  // Prints are always light, whatever the screen theme.
+  useEffect(() => {
+    const light = () => applyTheme('light'), restore = () => applyTheme(themeChoice);
+    window.addEventListener('beforeprint', light); window.addEventListener('afterprint', restore);
+    return () => { window.removeEventListener('beforeprint', light); window.removeEventListener('afterprint', restore); };
+  }, [themeChoice]);
   useEffect(() => { setStorageWarning(!saveWorkspace(workspace)); }, [workspace]);
   useEffect(() => {
     if (!busy) return;
@@ -60,11 +67,13 @@ export function App() {
     if (!files.length) return;
     setLoading(true);
     const messages: string[] = [];
-    let count = 0;
+    let count = 0, backup: ParsedBackup | null = null;
     for (const file of files) {
       try {
-        if (file.size > 25 * 1024 * 1024) throw new Error('Soubor je větší než 25 MB.');
-        const pattern = parsePatternFile(JSON.parse(await file.text()));
+        if (file.size > MAX_IMPORT_BYTES) throw new Error('Soubor je větší než 25 MB.');
+        const json: unknown = JSON.parse(await file.text());
+        if (isBackup(json)) { backup = parseBackup(json); continue; }
+        const pattern = parsePatternFile(json);
         if (pattern.id === demo.id) throw new Error('ID vestavěného demo střihu je vyhrazené.');
         try { await savePattern(pattern); }
         catch { messages.push(`${file.name}: ukládání není dostupné, střih zůstane jen do zavření stránky.`); }
@@ -73,12 +82,31 @@ export function App() {
       } catch (e) { messages.push(`${file.name}: ${e instanceof SyntaxError ? 'Neplatný soubor JSON.' : e instanceof Error ? e.message : 'Import se nezdařil.'}`); }
     }
     if (count) messages.unshift(`Importováno střihů: ${count}. Stejná ID nahrazují předchozí verzi.`);
+    setMessages(messages); setRestore(backup); setLoading(false);
+  }
+  function backupAll() {
+    const url = URL.createObjectURL(exportBackup(patterns, workspace)), anchor = document.createElement('a');
+    anchor.href = url; anchor.download = backupFileName(); anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function applyRestore(backup: ParsedBackup, replace: boolean) {
+    setRestore(null); setLoading(true);
+    const messages: string[] = [];
+    let storageFailed = false;
+    if (replace) {
+      for (const old of patterns) if (old.id !== demo.id) { try { await deletePattern(old.id); } catch { storageFailed = true; } }
+    }
+    for (const pattern of backup.patterns) { try { await savePattern(pattern); } catch { storageFailed = true; } }
+    setPatterns(prev => [demo, ...(replace ? [] : prev.filter(p => p.id !== demo.id && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
+    if (replace && backup.workspace) setWorkspace(backup.workspace);
+    messages.push(`Záloha obnovena: ${backup.patterns.length} střihů${replace && backup.workspace ? ' a zakázka' : ''}.`, ...backup.errors);
+    if (storageFailed) messages.push('Ukládání není dostupné, střihy zůstanou jen do zavření stránky.');
     setMessages(messages); setLoading(false);
   }
   // The PDF wizard's result goes the way of a JSON import: stored, listed, reported.
   async function savePdfPattern(pattern: PatternFile) {
     if (pattern.id === demo.id) { setMessages(['ID vestavěného demo střihu je vyhrazené.']); return; }
-    let message = `Střih „${pattern.name}“ je uložený v knihovně. Stejné ID nahrazuje předchozí verzi.`;
+    let message = `Střih „${pattern.name}“ je uložený v knihovně. Stejné ID nahrazuje předchozí verzi. Tip: zálohujte si střihy do souboru.`;
     try { await savePattern(pattern); }
     catch { message = `${pattern.name}: ukládání není dostupné, střih zůstane jen do zavření stránky.`; }
     setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
@@ -140,14 +168,22 @@ export function App() {
         <option value="auto">Automaticky</option><option value="light">Světlý</option><option value="dark">Tmavý</option>
       </select></label></header>
     <main>
+      {snapshot && <div class="print-only print-header"><h1>fitter · plán rozložení</h1>
+        <p>{[...new Set(order.map(line => `${patterns.find(p => p.id === line.patternId)?.name ?? line.patternId} (${line.size}, ${line.quantity}×)`))].join('; ')}</p>
+        <p>{new Date().toLocaleDateString('cs')}</p></div>}
       <div class="intro"><div><p class="eyebrow">Od střihu k látce</p><h1>Střihy na svém místě.</h1><p>Rozložte díly, využijte látku a pusťte se do šití.</p></div><span class="intro-tag">Méně odstřižků.<br />Více možností.</span></div>
       {storageWarning && <div class="notice warning" role="status">Prohlížeč neumožňuje uložit zakázku a nastavení. Po zavření stránky se nezachovají.</div>}
       {messages.length > 0 && <div class="notice" role="status"><div>{messages.map((message, i) => <p key={i}>{message}</p>)}</div>
         <button type="button" class="icon-button" aria-label="Zavřít oznámení" onClick={() => setMessages([])}>×</button></div>}
+      {restore && <div class="notice" role="status"><div><p>Záloha obsahuje {restore.patterns.length} střihů z {backupDate(restore.created)}. Obnovit?</p>
+        {restore.errors.map((message, i) => <p key={i}>{message}</p>)}
+        <div class="field-row"><button type="button" class="secondary" onClick={() => void applyRestore(restore, false)}>Přidat k mým střihům</button>
+          <button type="button" class="secondary" onClick={() => void applyRestore(restore, true)}>Nahradit vše</button></div></div>
+        <button type="button" class="icon-button" aria-label="Zrušit obnovení" onClick={() => setRestore(null)}>×</button></div>}
       <div class="workspace">
         <form class="controls" onSubmit={e => { e.preventDefault(); run(); }}>
           <fieldset disabled={busy} class="controls-fieldset">
-            <Library onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
+            <Library onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onBackup={backupAll} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
               onDelete={pattern => void removePattern(pattern)} />
             <section class="panel"><div class="section-heading"><h2><span class="step">01</span>Zakázka</h2><span class="count">{order.length}</span></div>
               {!order.length && <p class="muted">Vyberte střih v knihovně tlačítkem „+ Přidat“.</p>}
@@ -177,6 +213,8 @@ export function App() {
             <section class="panel"><div class="section-heading"><h2><span class="step">03</span>Nastavení</h2></div>
               <div class="field-row"><NumberField label="Švová záložka" value={settings.seamAmount} max={10} onChange={seamAmount => updateSettings({ ...settings, seamAmount })} />
                 <NumberField label="Mezera mezi díly" value={settings.gap} max={10} onChange={gap => updateSettings({ ...settings, gap })} /></div>
+              <p class="small muted">Mezera mezi díly: místo na stříhání mezi sousedními díly. Pro stříhání nůžkami nechte 0,5 cm; při 0 se díly mohou dotýkat. Švová záložka je už započítaná zvlášť.{' '}
+                {settings.gap !== DEFAULT_GAP_CM && <button type="button" class="text-button" onClick={() => updateSettings({ ...settings, gap: DEFAULT_GAP_CM })}>Výchozí</button>}</p>
               <RotationSelect value={settings.rotation} label="Výchozí otáčení" onChange={rotation => rotation && updateSettings({ ...settings, rotation })} />
               <label class="check"><input type="checkbox" checked={settings.mirroredPairs} onChange={e => updateSettings({ ...settings, mirroredPairs: e.currentTarget.checked })} />Páry zrcadlově</label>
               <p class="small muted">Každý druhý stejný díl zrcadlově. Platí pro nesloženou látku.</p>

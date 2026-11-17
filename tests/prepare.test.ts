@@ -1,6 +1,8 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { demo } from '../src/model/demo';
-import { checkInputs, chooseVariant, defaultFabric, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
+import { DEFAULT_GAP_CM, checkInputs, chooseVariant, defaultFabric, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece } from './fixtures';
@@ -186,5 +188,11 @@ describe('prepare', () => {
   });
   it('default fabric is 140 cm, unfolded and not directional', () => {
     expect(defaultFabric()).toEqual({ width: 140, length: null, folded: false, directional: false });
+  });
+  it('pins the default gap to one constant', () => {
+    expect(DEFAULT_GAP_CM).toBe(0.5);
+    expect(defaultSettings.gap).toBe(DEFAULT_GAP_CM);
+    const files = (readdirSync('src', { recursive: true }) as string[]).filter(f => /\.tsx?$/.test(f));
+    expect(files.filter(f => /\bgap: 0\.5\b/.test(readFileSync(join('src', f), 'utf8')))).toEqual([]);
   });
 });

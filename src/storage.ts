@@ -1,4 +1,5 @@
 import { createStore, del, entries, set } from 'idb-keyval';
+import { demo } from './model/demo';
 import { parsePatternFile } from './model/pattern';
 import type { PatternFile } from './model/pattern';
 import { defaultSettings } from './model/prepare';
@@ -24,9 +25,8 @@ const numeric = (v: unknown, min: number, max: number): v is number => typeof v 
 const rotation = (v: unknown): v is Rotation => v === 'none' || v === '180' || v === '90';
 const booleanMap = (v: unknown): Record<string, boolean> => record(v) ? Object.fromEntries(Object.entries(v).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')) : {};
 
-export function loadWorkspace(): Workspace | null {
+export function parseWorkspace(raw: unknown): Workspace | null {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? 'null');
     if (!record(raw) || raw.version !== 1 || !Array.isArray(raw.order) || !record(raw.fabrics) || !record(raw.settings)) return null;
     const order: OrderLine[] = [];
     for (const line of raw.order) {
@@ -51,7 +51,41 @@ export function loadWorkspace(): Workspace | null {
     return { order, fabrics, settings };
   } catch { return null; }
 }
+export function loadWorkspace(): Workspace | null {
+  try { return parseWorkspace(JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? 'null')); }
+  catch { return null; }
+}
+const serializeWorkspace = (workspace: Workspace) => ({ version: 1, ...workspace });
 export function saveWorkspace(workspace: Workspace): boolean {
-  try { localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ version: 1, ...workspace })); return true; }
+  try { localStorage.setItem(WORKSPACE_KEY, JSON.stringify(serializeWorkspace(workspace))); return true; }
   catch { return false; }
+}
+
+export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
+const BACKUP_FORMAT = 'fitter-backup@1';
+export const isBackup = (json: unknown): boolean => record(json) && json.format === BACKUP_FORMAT;
+export const backupFileName = (now = new Date()) => `fitter-zaloha-${now.toISOString().slice(0, 10)}.json`;
+// The demo pattern is built in and the theme is a device preference, so neither goes into a backup.
+export function exportBackup(patterns: PatternFile[], workspace: Workspace, now = new Date()): Blob {
+  const backup = { format: BACKUP_FORMAT, created: now.toISOString(), patterns: patterns.filter(p => p.id !== demo.id), workspace: serializeWorkspace(workspace) };
+  return new Blob([JSON.stringify(backup)], { type: 'application/json' });
+}
+export interface ParsedBackup { created: string; patterns: PatternFile[]; workspace: Workspace | null; errors: string[] }
+export function parseBackup(json: unknown): ParsedBackup {
+  if (!isBackup(json) || !record(json)) throw new Error(`Nepodporovaný formát zálohy; očekáván ${BACKUP_FORMAT}.`);
+  if (!Array.isArray(json.patterns)) throw new Error('Záloha neobsahuje seznam střihů.');
+  const patterns: PatternFile[] = [], errors: string[] = [];
+  json.patterns.forEach((value, i) => {
+    const name = record(value) && typeof value.name === 'string' ? `„${value.name}“` : `č. ${i + 1}`;
+    try {
+      const pattern = parsePatternFile(value);
+      if (pattern.id !== demo.id) patterns.push(pattern);
+    } catch (e) { errors.push(`Střih ${name} se nepodařilo obnovit: ${e instanceof Error ? e.message : 'neplatný střih.'}`); }
+  });
+  let workspace = parseWorkspace(json.workspace);
+  if (workspace) {
+    const ids = new Set([demo.id, ...patterns.map(p => p.id)]);
+    workspace = { ...workspace, order: workspace.order.filter(line => ids.has(line.patternId)) };
+  } else errors.push('Zakázku a nastavení se nepodařilo obnovit.');
+  return { created: typeof json.created === 'string' ? json.created : '', patterns, workspace, errors };
 }
