@@ -1,3 +1,5 @@
+import { note } from '../errors';
+import type { Note } from '../errors';
 import { area, pointSegmentDistance } from '../geom/polygon';
 import { containsPoint } from './group';
 import { proposeChain } from './proposals';
@@ -12,8 +14,8 @@ export interface PieceDraft {
   foldEdge: number | null;
   // Degrees in sheet space (y down): 0 = +x, 90 = +y.
   grainAngle: number; optional: boolean; variantGroup: string; variant: string;
-  // Shown on the card: the labels left the counts ambiguous.
-  hint?: string;
+  // Shown on the card: the labels left the counts or the sizes ambiguous.
+  hint?: Note[];
   // The reference outline is used for every size of the pattern.
   allSizes?: boolean;
   // Empty = the whole outline (variantGroup / variant above may still group pieces by hand); otherwise one
@@ -30,14 +32,14 @@ export interface RectangleDraft {
 export const RECTANGLE_MAX_CM = 1000;
 export const newRectangle = (sizes: string[]): RectangleDraft => ({ name: '', cut: [{ material: DEFAULT_MATERIAL, count: 1 }],
   sizes: Object.fromEntries(sizes.map(size => [size, { width: NaN, height: NaN }])), perSize: false, optional: false, variantGroup: '', variant: '' });
-export function rectangleProblems(rectangle: RectangleDraft): string[] {
-  const problems: string[] = [];
-  if (!rectangle.name.trim()) problems.push('Zadejte název dílu.');
-  if (!rectangle.cut.length) problems.push('Přidejte alespoň jeden materiál.');
-  if (rectangle.cut.some(c => !c.material.trim())) problems.push('Vyplňte název materiálu.');
-  if (rectangle.cut.some(c => !Number.isInteger(c.count) || c.count < 1 || c.count > 1000)) problems.push('Počet kusů musí být celé číslo 1–1 000.');
+export function rectangleProblems(rectangle: RectangleDraft): Note[] {
+  const problems: Note[] = [];
+  if (!rectangle.name.trim()) problems.push(note('rect.name'));
+  if (!rectangle.cut.length) problems.push(note('rect.material'));
+  if (rectangle.cut.some(c => !c.material.trim())) problems.push(note('rect.materialName'));
+  if (rectangle.cut.some(c => !Number.isInteger(c.count) || c.count < 1 || c.count > 1000)) problems.push(note('rect.count'));
   if (Object.values(rectangle.sizes).some(({ width, height }) => !(width > 0 && width <= RECTANGLE_MAX_CM && height > 0 && height <= RECTANGLE_MAX_CM)))
-    problems.push(`Šířka i délka musí být větší než 0 a nejvýše ${RECTANGLE_MAX_CM} cm.`);
+    problems.push(note('rect.size', { max: RECTANGLE_MAX_CM }));
   return problems;
 }
 export interface Edge { a: Pt; b: Pt; length: number }
@@ -119,13 +121,13 @@ export function parseCutLabels(labels: string[], defaultMaterial = DEFAULT_MATER
   for (const label of labels) for (const { material, count } of instructions(label)) {
     if (material) counts.set(material, Math.max(counts.get(material) ?? 0, count)); else loose.push({ label, count });
   }
-  let hint: string | undefined;
+  let hint: Note | undefined;
   if (loose.length) {
     const count = Math.max(...loose.map(l => l.count));
     const named = labels.filter(l => !titles.has(l) && !instructions(l).length).flatMap(words).map(w => material(w))
       .find(m => MATERIALS.some(([, known]) => known === m) && !counts.has(m));
     if (named) counts.set(named, count);
-    else if (counts.has(defaultMaterial)) hint = `Pokyn „${loose[0].label}“ neuvádí materiál – zkontrolujte počty.`;
+    else if (counts.has(defaultMaterial)) hint = note('hint.noMaterial', { instruction: loose[0].label });
     else counts.set(defaultMaterial, count);
   }
   const cut = [...counts].map(([material, count]) => ({ material, count }));
@@ -320,10 +322,10 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     const grainAngle = line ? axisAngle(line.a, line.b) : fold ? axisAngle(fold.a, fold.b) : 90;
     const same = Object.keys(c.sizes).length < result.sizes.length && Object.values(c.sizes).every(ring => sameOutline(openRing(ring), rings[i], SAME_OUTLINE_CM / k));
     const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels) && !gridLike(c.cells?.[c.refSize]);
-    const hint = [parsed.hint, c.sizesUnclear ? 'Velikosti se nepodařilo rozlišit – vyberte je ručně.' : undefined].filter(Boolean).join(' ');
+    const hint = [parsed.hint, c.sizesUnclear ? note('hint.sizesUnclear') : undefined].filter((n): n is Note => n !== undefined);
     // Stacked strips: cells in a chain become variants.
     const variants = include && !c.sizesUnclear ? proposeChain(c.cells, Object.keys(c.sizes), k) : [];
     return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
-      optional: false, variantGroup: '', variant: '', variants, ...(hint ? { hint } : {}), ...(same ? { allSizes: true } : {}) };
+      optional: false, variantGroup: '', variant: '', variants, ...(hint.length ? { hint } : {}), ...(same ? { allSizes: true } : {}) };
   });
 }

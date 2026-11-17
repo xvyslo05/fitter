@@ -1,3 +1,5 @@
+import { AppError } from '../errors';
+import type { ErrorCode } from '../errors';
 import type { LayoutBlock, PageLayout, PdfDoc, PdfPage, Pt } from './types';
 import { seamMatches, matchPages } from './match';
 import type { Match } from './match';
@@ -298,17 +300,17 @@ function overviewBlocks(doc: PdfDoc, matches: Match[], step: Pt): LayoutBlock[] 
 }
 
 // confident: every block joins several pages, so the blocks need not be entered by hand.
-export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string; confident: boolean } {
-  if (!doc.pages.length) throw new Error('PDF neobsahuje stránky.');
+export function detectLayout(doc: PdfDoc): { layout: PageLayout; sources: ErrorCode[]; confident: boolean } {
+  if (!doc.pages.length) throw new AppError('pdf.noPages');
   const size: Pt = [median(doc.pages.map(p => p.width)), median(doc.pages.map(p => p.height))];
   const matches = matchPages(doc), frame = frameStep(doc.pages, size);
-  const sources: string[] = [];
+  const sources: ErrorCode[] = [];
   const step = size.map((dim, axis) => {
     const values = matches.filter(m => m.votes >= 2 && Math.abs(axis === 0 ? m.dy : m.dx) < 0.8)
       .map(m => ({ value: Math.abs(axis === 0 ? m.dx : m.dy), weight: m.votes }))
       .filter(v => v.value > dim * 0.55 && v.value < dim * 1.05);
     const value = mode(values);
-    sources.push(value ? 'shodné cesty' : frame[axis] ? 'ořezový rám / značky' : 'rozměr stránky');
+    sources.push(value ? 'source.samePaths' : frame[axis] ? 'source.frame' : 'source.pageSize');
     return value ?? frame[axis] ?? dim;
   }) as Pt;
   const seams = seamMatches(doc, step);
@@ -317,17 +319,17 @@ export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string;
   let blocks = blocksFromMatches(doc.pages, links, step);
   if (labels.length) {
     const labeled = blocksFromMatches(doc.pages, labels, step);
-    if (labeled.length < blocks.length) { blocks = labeled; sources.push('popisky stránek'); }
+    if (labeled.length < blocks.length) { blocks = labeled; sources.push('source.labels'); }
   }
-  if (seams.length) sources.push('návaznost hran');
+  if (seams.length) sources.push('source.seams');
   const linked = blocks.filter(b => b.pages[0] !== b.pages[1]).reduce((n, b) => n + b.pages[1] - b.pages[0] + 1, 0);
   if (linked < doc.pages.length) {
     const overview = overviewBlocks(doc, links, step);
     const covered = overview?.filter(b => b.pages[0] !== b.pages[1]).reduce((n, b) => n + b.pages[1] - b.pages[0] + 1, 0) ?? 0;
-    if (overview && (covered > linked || covered === linked && overview.length < blocks.filter(b => b.pages[0] !== b.pages[1]).length)) { blocks = overview; sources.push('náhled skládání'); }
+    if (overview && (covered > linked || covered === linked && overview.length < blocks.filter(b => b.pages[0] !== b.pages[1]).length)) { blocks = overview; sources.push('source.overview'); }
   }
   if (blocks.some(b => b.pages[0] !== b.pages[1])) blocks = blocks.filter(b => b.pages[0] !== b.pages[1]);
-  if (blocks.every(b => b.pages[0] === b.pages[1]) && doc.pages.length > 1) sources.push('bloky je třeba zadat');
+  if (blocks.every(b => b.pages[0] === b.pages[1]) && doc.pages.length > 1) sources.push('source.manual');
   const confident = blocks.every(b => b.pages[0] !== b.pages[1]);
-  return { layout: { step, blocks }, source: [...new Set(sources)].join(' + '), confident };
+  return { layout: { step, blocks }, sources: [...new Set(sources)], confident };
 }

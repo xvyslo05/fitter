@@ -1,3 +1,4 @@
+import { AppError } from '../errors';
 import { area, isSimple, pointSegmentDistance } from '../geom/polygon';
 import { strokeMetrics } from './stroke';
 import { styleKeyOf, styleLegend } from './styles';
@@ -73,13 +74,13 @@ const MIN_CELL_CM2 = 0.3, NOTCH_CM2 = 1;
 export function traceShapes(paths: PdfPath[], opts: TraceOptions): TracedShape[] {
   const { resolutionMm, gapMm, minAreaCm2, cmPerPt } = opts;
   if (![resolutionMm, gapMm, minAreaCm2, cmPerPt].every(Number.isFinite) || resolutionMm < 0.25 || resolutionMm > 1 ||
-    gapMm < 0 || gapMm > 6 || minAreaCm2 < 0 || cmPerPt <= 0) throw new Error('Neplatné nastavení obkreslení.');
+    gapMm < 0 || gapMm > 6 || minAreaCm2 < 0 || cmPerPt <= 0) throw new AppError('pdf.traceSettings');
   if (!paths.length) return [];
   const px = cmPerPt * 10 / resolutionMm, radius = Math.round(gapMm / resolutionMm / 2);
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, maxWidth = 1;
   for (const path of paths) for (const points of path.subpaths) for (let i = 0; i < points.length; i++) {
     const [x, y] = points[i];
-    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Cesta obsahuje neplatné souřadnice.');
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new AppError('pdf.badCoordinates');
     minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
     if (path.stroke && i) maxWidth = Math.max(maxWidth, strokeMetrics(path, points[i - 1], points[i]).lineWidth * px);
   }
@@ -99,7 +100,7 @@ export function traceShapes(paths: PdfPath[], opts: TraceOptions): TracedShape[]
   const padding = radius + Math.ceil(maxWidth) + 4;
   minX -= padding / px; minY -= padding / px;
   const w = Math.ceil((maxX - minX) * px) + padding + 1, h = Math.ceil((maxY - minY) * px) + padding + 1;
-  if (w * h > 40_000_000) throw new Error('Arch je pro toto rozlišení příliš velký. Zvyšte krok rastru.');
+  if (w * h > 40_000_000) throw new AppError('pdf.sheetTooLarge');
   const raster = new Uint8Array(w * h);
   function line(a: Pt, b: Pt, width: number) {
     let x = Math.round((a[0] - minX) * px), y = Math.round((a[1] - minY) * px);

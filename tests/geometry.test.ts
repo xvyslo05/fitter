@@ -42,6 +42,6 @@ describe('cut geometry', () => {
     expect(area(unfold(aligned.polygon, fold))).toBeCloseTo(400);
     expect(bbox(orientFold(aligned.polygon, fold)).minX).toBe(0);
     expect(alignFoldOutline(rectangle(10, 20), fold).adjusted).toBe(false);
-    expect(() => unfold(rectangle(10, 20), [[-10, 0], [-10, 20]])).toThrow(/oddělené/);
+    expect(() => unfold(rectangle(10, 20), [[-10, 0], [-10, 20]])).toThrow('geom.splitOutline');
   });
 });

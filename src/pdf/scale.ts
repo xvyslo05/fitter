@@ -1,3 +1,5 @@
+import { AppError, note } from '../errors';
+import type { Note } from '../errors';
 import { area, bbox } from '../geom/polygon';
 import type { PdfDoc, PdfPath, PdfText, Pt, ScaleResult } from './types';
 
@@ -70,7 +72,7 @@ export function withoutScaleMarks(paths: PdfPath[], texts: PdfText[], scale?: Sc
   });
 }
 export function overrideScale(scale: ScaleResult, squareCm: number): ScaleResult {
-  if (!scale.measuredPt || !Number.isFinite(squareCm) || squareCm <= 0) throw new Error('Zadejte kladnou velikost nalezeného čtverce v cm.');
+  if (!scale.measuredPt || !Number.isFinite(squareCm) || squareCm <= 0) throw new AppError('scale.squareSize');
   return { ...scale, squareCm, cmPerPt: squareCm / scale.measuredPt };
 }
 // "4,8" and "4.8" are 4.8; anything else is NaN.
@@ -80,13 +82,13 @@ export function parseDecimal(text: string): number {
 }
 // The user's answer to the scale question: the square matches, it measures another side, or (no square) the print is at another percentage.
 export type ScaleAnswer = { ok: true } | { ok: false; measuredCm: number } | { percent: number };
-export function resolveScale(detected: ScaleResult, answer: ScaleAnswer): { scale: ScaleResult } | { error: string } {
+export function resolveScale(detected: ScaleResult, answer: ScaleAnswer): { scale: ScaleResult } | { error: Note } {
   if ('percent' in answer) {
-    if (!Number.isFinite(answer.percent) || answer.percent <= 0) return { error: 'Zadejte kladné procento, např. 97.' };
+    if (!Number.isFinite(answer.percent) || answer.percent <= 0) return { error: note('scale.percent') };
     return { scale: { ...detected, cmPerPt: CM_PER_PT * answer.percent / 100 } };
   }
   if (answer.ok) return { scale: detected };
-  if (!detected.measuredPt) return { error: 'Kontrolní čtverec nebyl nalezen.' };
-  if (!Number.isFinite(answer.measuredCm) || answer.measuredCm <= 0) return { error: 'Zadejte kladnou velikost čtverce v cm, např. 4,8.' };
+  if (!detected.measuredPt) return { error: note('scale.squareMissing') };
+  if (!Number.isFinite(answer.measuredCm) || answer.measuredCm <= 0) return { error: note('scale.measured') };
   return { scale: overrideScale(detected, answer.measuredCm) };
 }

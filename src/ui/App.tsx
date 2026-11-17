@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { fmt, t } from '../i18n';
+import { describe, errorText, fmt, t } from '../i18n';
+import type { Note } from '../errors';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
@@ -28,13 +29,13 @@ function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<stri
   });
   if (!rows.length) return null;
   return <section class="buy-box" aria-label={t('buy.title')}><h3>{t('buy.title')}</h3>
-    {rows.map(row => <p key={row.material}>{row.text}{row.exact && <small>{row.exact}</small>}</p>)}
-    <p class="small muted">{SHRINKAGE_NOTE}</p>
+    {rows.map(row => <p key={row.material}>{describe(row.text)}{row.exact && <small>{describe(row.exact)}</small>}</p>)}
+    <p class="small muted">{describe(SHRINKAGE_NOTE)}</p>
     <button type="button" class="secondary screen-only" onClick={() => window.print()}>{t('buy.print')}</button></section>;
 }
 const demoIdTaken = () => t('app.demoIdTaken');
 const MOBILE_QUERY = '(max-width:560px)';
-interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: string[] }
+interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: Note[] }
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace() ?? {
     order: [makeOrder(demo)], fabrics: {}, settings: structuredClone(defaultSettings),
@@ -60,7 +61,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     loadLibrary().then(({ patterns, errors }) => {
-      if (!cancelled) { setPatterns([demo, ...patterns.filter(p => p.id !== demo.id)]); setMessages(errors); }
+      if (!cancelled) { setPatterns([demo, ...patterns.filter(p => p.id !== demo.id)]); setMessages(errors.map(describe)); }
     }).catch(() => {
       if (!cancelled) setMessages([t('app.libraryLoadFailed')]);
     }).finally(() => { if (!cancelled) setLoading(false); });
@@ -82,12 +83,13 @@ export function App() {
   const signature = useMemo(() => JSON.stringify({ workspace, patterns }), [workspace, patterns]);
   const prepared = useMemo<{ data: PreparedOrder; error?: string }>(() => {
     try { return { data: prepare(patterns, order, fabrics, settings) }; }
-    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : t('app.checkOrder') }; }
+    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: errorText(e, 'app.checkOrder') }; }
   }, [patterns, order, fabrics, settings]);
   const materials = Object.keys(prepared.data.materials);
-  const inputError = prepared.error ?? checkInputs(settings, fabrics, materials);
+  const inputProblem = checkInputs(settings, fabrics, materials);
+  const inputError = prepared.error ?? (inputProblem ? describe(inputProblem) : null);
   // The collapsed block opens by itself when one of its fields is invalid: a closed <details> cannot show or focus it.
-  const refineError = checkSettings(settings);
+  const refineError = checkSettings(settings)?.code;
   useEffect(() => { if (refineError && refine.current) refine.current.open = true; }, [refineError]);
   useEffect(() => setRunError(''), [signature]);
   const stale = snapshot && snapshot.signature !== signature;
@@ -110,7 +112,7 @@ export function App() {
         catch { messages.push(t('import.saveBlocked', { name: file.name })); }
         setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
         count++;
-      } catch (e) { messages.push(t('import.fileError', { name: file.name, reason: e instanceof SyntaxError ? t('import.notPattern') : e instanceof Error ? e.message : t('import.failed') })); }
+      } catch (e) { messages.push(t('import.fileError', { name: file.name, reason: e instanceof SyntaxError ? t('import.notPattern') : errorText(e, 'import.failed') })); }
     }
     if (count) messages.unshift(t('import.added', { count }));
     setMessages(messages); setRestore(backup); setLoading(false);
@@ -130,7 +132,7 @@ export function App() {
     for (const pattern of backup.patterns) { try { await savePattern(pattern); } catch { storageFailed = true; } }
     setPatterns(prev => [demo, ...(replace ? [] : prev.filter(p => p.id !== demo.id && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
     if (replace && backup.workspace) setWorkspace(backup.workspace);
-    messages.push(t(replace && backup.workspace ? 'restore.doneWithOrder' : 'restore.done', { count: backup.patterns.length }), ...backup.errors);
+    messages.push(t(replace && backup.workspace ? 'restore.doneWithOrder' : 'restore.done', { count: backup.patterns.length }), ...backup.errors.map(describe));
     if (storageFailed) messages.push(t('restore.storageFailed'));
     setMessages(messages); setLoading(false);
   }
@@ -174,7 +176,7 @@ export function App() {
           setStatus(t('run.searching', { material: data.material }));
         } else {
           setBusy(false); activeWorker.terminate(); worker.current = null;
-          if (data.type === 'error') { setRunError(data.message); setStatus(t('run.failed')); }
+          if (data.type === 'error') { setRunError(describe(data)); setStatus(t('run.failed')); }
           else setStatus(t('run.done'));
         }
       };
@@ -217,7 +219,7 @@ export function App() {
       <div class="intro"><div><h1>{t('app.tagline')}</h1><p>{t('app.intro')}</p></div></div>
       {storageWarning && <div class="notice warning" role="status">{t('app.storageWarning')}</div>}
       {restore && <div class="notice" role="status"><div><p>{t('restore.prompt', { count: restore.patterns.length, date: backupDate(restore.created) })}</p>
-        {restore.errors.map((message, i) => <p key={i}>{message}</p>)}
+        {restore.errors.map((error, i) => <p key={i}>{describe(error)}</p>)}
         <div class="field-row"><button type="button" class="secondary" onClick={() => void applyRestore(restore, false)}>{t('restore.add')}</button>
           <button type="button" class="secondary" onClick={() => void applyRestore(restore, true)}>{t('restore.replace')}</button></div></div>
         <button type="button" class="icon-button" aria-label={t('restore.cancel')} onClick={() => setRestore(null)}>×</button></div>}
@@ -256,7 +258,7 @@ export function App() {
           {stale && <div class="notice warning" role="status"><p>{t('results.stale')}</p>
             <button type="button" class="secondary" disabled={busy || loading || !materials.length || Boolean(inputError)} onClick={run}>{t('results.rerun')}</button></div>}
           {(snapshot?.notes ?? prepared.data.notes).length > 0 && <details class="notes" open><summary>{t('results.notes')}</summary>
-            <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={note}>{note}</li>)}</ul></details>}
+            <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={JSON.stringify(note)}>{describe(note)}</li>)}</ul></details>}
           {snapshot && <BuyBox jobs={snapshot.jobs} results={results} busy={busy} />}
           {!snapshot ? <EmptyLayout /> : snapshot.jobs.map(job => Object.hasOwn(results, job.material)
             ? <Layout key={job.material} {...job} result={results[job.material]} mirroredKeys={snapshot.mirroredKeys} />

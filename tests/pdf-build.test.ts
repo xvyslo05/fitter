@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { describe as text } from '../src/i18n';
 import { bbox, signedArea } from '../src/geom/polygon';
 import { parsePatternFile } from '../src/model/pattern';
 import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../src/pdf/build';
 import { foldEdges, newRectangle, rectangleProblems } from '../src/pdf/pieces';
 import type { PieceDraft, RectangleDraft } from '../src/pdf/pieces';
 import { CM_PER_PT } from '../src/pdf/scale';
+import { caught } from './fixtures';
 import type { PdfText, Pt, TraceResult } from '../src/pdf/types';
 
 // A test square printed at 102 %: 1 pt on the sheet is 1.02 × 2.54 / 72 cm.
@@ -98,8 +100,11 @@ describe('variants', () => {
     expect(Math.abs(pattern.pieces[0].sizes.L.area - 520)).toBeLessThan(10);
   });
   it('names piece, variant and size when the selection is disconnected', () => {
-    expect(() => build({ variants: variants(['dlouhý', [1, 3]]) })).toThrow('Díl „Rukáv“, varianta „dlouhý“, velikost L: Vybrané části na sebe nenavazují.');
-    expect(() => build({ variants: variants(['x', [9]]) })).toThrow('buňka 9 neexistuje');
+    const apart = caught(() => build({ variants: variants(['dlouhý', [1, 3]]) }));
+    expect(apart.code).toBe('build.variantUnion');
+    expect(apart.params).toEqual({ name: 'Rukáv', variant: 'dlouhý', size: 'L', reason: { code: 'geom.partsDisconnected' } });
+    expect(text(apart)).toBe('Díl „Rukáv“, varianta „dlouhý“, velikost L: Vybrané části na sebe nenavazují.');
+    expect(caught(() => build({ variants: variants(['x', [9]]) })).code).toBe('build.cellMissing');
   });
   it('omits sizes a variant has no cells for', () => {
     const two: TraceResult = { ...stacked, sizes: ['L', 'M'], candidates: [{ ...stacked.candidates[0], sizes: { L: stacked.candidates[0].sizes.L, M: stacked.candidates[0].sizes.L },
@@ -124,7 +129,7 @@ describe('checkPieces', () => {
   const broken: TraceResult = { ...result, candidates: [{ ...result.candidates[0], sizes: { ...result.candidates[0].sizes, M: bow } }, result.candidates[1]] };
   const built = () => buildPattern(broken, [draft(1, { name: 'Rukáv', grainAngle: 30 }), draft(2, { name: 'Záda', grainAngle: 0 })], { ...meta, sizes: ['M', 'L'] });
   it('names the piece and size whose outline cannot be validated', () => {
-    expect(checkPieces(built())).toMatchObject([{ pieceId: 'rukav', pieceName: 'Rukáv', size: 'M', problem: 'outline' }]);
+    expect(checkPieces(built())).toMatchObject([{ pieceId: 'rukav', pieceName: 'Rukáv', size: 'M', problem: 'outline', error: { code: 'pattern.outlineInvalid', params: { piece: 1, size: 'M' } } }]);
     expect(checkPieces(buildPattern(result, [draft(1, { grainAngle: 30 })], meta))).toEqual([]);
   });
   it('drops one size and keeps the others', () => {

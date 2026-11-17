@@ -1,3 +1,4 @@
+import { AppError } from '../errors';
 import { area, offset, union } from '../geom/polygon';
 import type { VariantDraft } from './pieces';
 import type { Cell, Pt } from './types';
@@ -79,7 +80,7 @@ export function chainOrder(cells: Cell[], cmPerPt: number): number[][] | null {
 export function unionCells(rings: Pt[][], cmPerPt: number, pixelMm: number): Pt[] {
   const d = 0.6 * pixelMm / 10 / cmPerPt;
   try { return rings.map(ring => offset(ring, d)).reduce((all, ring) => union(all, ring)); }
-  catch { throw new Error('Vybrané části na sebe nenavazují.'); }
+  catch { throw new AppError('geom.partsDisconnected'); }
 }
 
 // Sizes of one shared style, smallest first: the cumulative unions of the onion levels, or 'single' when the

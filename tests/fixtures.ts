@@ -1,3 +1,4 @@
+import { AppError } from '../src/errors';
 import type { Piece, Pt } from '../src/model/pattern';
 import type { NestOptions, NestPiece } from '../src/nest/types';
 
@@ -16,4 +17,9 @@ export function mixedPieces(count = 30): NestPiece[] {
       i % 3 === 1 ? [[0, 0], [w, 0], [w * 0.8, h], [w * 0.15, h]] : rectangle(w, h);
     return { key: `synthetic-${i}`, label: `Zkušební díl ${i}`, polygon, rotation: i % 2 ? '90' : '180' };
   });
+}
+// The AppError a call throws (code and params to assert on); fails when it throws nothing else or something else.
+export function caught(fn: () => unknown): AppError {
+  try { fn(); } catch (e) { if (e instanceof AppError) return e; throw e; }
+  throw new Error('nothing was thrown');
 }

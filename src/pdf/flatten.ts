@@ -1,3 +1,4 @@
+import { AppError } from '../errors';
 import type { Pt } from './types';
 
 export type Matrix = [number, number, number, number, number, number];
@@ -35,7 +36,7 @@ export function flatten(data: ArrayLike<number>, matrix: Matrix) {
       }
     } else if (op === 4) {
       if (current.length) { current.push([...current[0]]); closed[closed.length - 1] = true; }
-    } else throw new Error(`Neznámý příkaz cesty PDF: ${op}.`);
+    } else throw new AppError('pdf.unknownPathOp', { op });
   }
   return { subpaths, closed };
 }

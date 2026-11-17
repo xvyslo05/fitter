@@ -1,4 +1,6 @@
 import { createStore, del, entries, set } from 'idb-keyval';
+import { AppError, note, toNote } from './errors';
+import type { Note } from './errors';
 import { demo } from './model/demo';
 import { parsePatternFile } from './model/pattern';
 import type { PatternFile } from './model/pattern';
@@ -9,11 +11,11 @@ import type { Fabric, Rotation } from './nest/types';
 const libraryStore = createStore('fitter-library', 'patterns');
 const WORKSPACE_KEY = 'fitter:workspace:v1';
 export interface Workspace { order: OrderLine[]; fabrics: Record<string, Fabric>; settings: Settings }
-export async function loadLibrary(): Promise<{ patterns: PatternFile[]; errors: string[] }> {
-  const patterns: PatternFile[] = [], errors: string[] = [];
+export async function loadLibrary(): Promise<{ patterns: PatternFile[]; errors: Note[] }> {
+  const patterns: PatternFile[] = [], errors: Note[] = [];
   for (const [, value] of await entries(libraryStore)) {
     try { patterns.push(parsePatternFile(value)); }
-    catch { errors.push('Jeden uložený střih je poškozený. Importujte jej znovu.'); }
+    catch { errors.push(note('storage.corrupt')); }
   }
   return { patterns, errors };
 }
@@ -70,22 +72,25 @@ export function exportBackup(patterns: PatternFile[], workspace: Workspace, now 
   const backup = { format: BACKUP_FORMAT, created: now.toISOString(), patterns: patterns.filter(p => p.id !== demo.id), workspace: serializeWorkspace(workspace) };
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }
-export interface ParsedBackup { created: string; patterns: PatternFile[]; workspace: Workspace | null; errors: string[] }
+export interface ParsedBackup { created: string; patterns: PatternFile[]; workspace: Workspace | null; errors: Note[] }
 export function parseBackup(json: unknown): ParsedBackup {
-  if (!isBackup(json) || !record(json)) throw new Error(`Nepodporovaný formát zálohy; očekáván ${BACKUP_FORMAT}.`);
-  if (!Array.isArray(json.patterns)) throw new Error('Záloha neobsahuje seznam střihů.');
-  const patterns: PatternFile[] = [], errors: string[] = [];
+  if (!isBackup(json) || !record(json)) throw new AppError('backup.unsupportedFormat', { format: BACKUP_FORMAT });
+  if (!Array.isArray(json.patterns)) throw new AppError('backup.noPatterns');
+  const patterns: PatternFile[] = [], errors: Note[] = [];
   json.patterns.forEach((value, i) => {
-    const name = record(value) && typeof value.name === 'string' ? `„${value.name}“` : `č. ${i + 1}`;
+    const name = record(value) && typeof value.name === 'string' ? value.name : null;
     try {
       const pattern = parsePatternFile(value);
       if (pattern.id !== demo.id) patterns.push(pattern);
-    } catch (e) { errors.push(`Střih ${name} se nepodařilo obnovit: ${e instanceof Error ? e.message : 'neplatný střih.'}`); }
+    } catch (e) {
+      const reason = toNote(e, 'pattern.invalid');
+      errors.push(name === null ? note('backup.patternNumbered', { n: i + 1, reason }) : note('backup.patternNamed', { name, reason }));
+    }
   });
   let workspace = parseWorkspace(json.workspace);
   if (workspace) {
     const ids = new Set([demo.id, ...patterns.map(p => p.id)]);
     workspace = { ...workspace, order: workspace.order.filter(line => ids.has(line.patternId)) };
-  } else errors.push('Seznam Co šiju a nastavení se nepodařilo obnovit.');
+  } else errors.push(note('backup.workspace'));
   return { created: typeof json.created === 'string' ? json.created : '', patterns, workspace, errors };
 }

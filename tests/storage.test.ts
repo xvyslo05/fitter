@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe as text } from '../src/i18n';
 import { demo } from '../src/model/demo';
 import { defaultSettings, makeOrder } from '../src/model/prepare';
+import { caught } from './fixtures';
 import { MAX_IMPORT_BYTES, backupFileName, exportBackup, isBackup, loadWorkspace, parseBackup, saveWorkspace } from '../src/storage';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -57,11 +59,13 @@ describe('backup', () => {
     const parsed = parseBackup(json);
     expect(parsed.patterns.map(p => p.id)).toEqual(['a']);
     expect(parsed.errors).toHaveLength(1);
-    expect(parsed.errors[0]).toContain('Střih b');
+    expect(parsed.errors[0]).toMatchObject({ code: 'backup.patternNamed', params: { name: 'Střih b', reason: { code: 'pattern.expectedList', params: { field: 'sizes' } } } });
+    expect(text(parsed.errors[0])).toBe('Střih „Střih b“ se nepodařilo obnovit: Velikosti: očekáván neprázdný seznam.');
   });
   it('rejects another format', () => {
-    expect(() => parseBackup({ format: 'fitter-pattern@1' })).toThrow('fitter-backup@1');
-    expect(() => parseBackup(null)).toThrow('fitter-backup@1');
+    expect(caught(() => parseBackup({ format: 'fitter-pattern@1' }))).toMatchObject({ code: 'backup.unsupportedFormat', params: { format: 'fitter-backup@1' } });
+    expect(caught(() => parseBackup(null)).code).toBe('backup.unsupportedFormat');
+    expect(text(caught(() => parseBackup(null)))).toBe('Nepodporovaný formát zálohy; očekáván fitter-backup@1.');
     expect(isBackup(structuredClone(demo))).toBe(false);
   });
   it('ignores the demo id and drops order lines of patterns missing from the backup', async () => {
@@ -87,6 +91,6 @@ describe('backup', () => {
     const parsed = parseBackup(json);
     expect(parsed.patterns).toHaveLength(1);
     expect(parsed.workspace).toBeNull();
-    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors).toEqual([{ code: 'backup.workspace' }]);
   });
 });

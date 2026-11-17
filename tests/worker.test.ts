@@ -31,7 +31,23 @@ describe('worker protocol', () => {
     vi.stubGlobal('self', scope);
     await import('../src/nest/worker');
     scope.onmessage!({ data: { jobs: [{ material: 'Synthetic', pieces: [], fabric: { ...defaultFabric(), width: 0 } }], options: defaultSettings } });
-    expect(messages[0].type).toBe('error');
-    expect(messages).toHaveLength(1);
+    expect(messages).toEqual([{ type: 'error', code: 'nest.fabricRange' }]);
+  });
+  it('posts plain code and params, so they survive the structured clone', async () => {
+    const messages: WorkerResponse[] = [];
+    const scope: WorkerScope = { postMessage: message => messages.push(structuredClone(message)) };
+    vi.stubGlobal('self', scope);
+    await import('../src/nest/worker');
+    const bad = { ...defaultSettings, resolution: 0 };
+    scope.onmessage!({ data: { jobs: [{ material: 'Synthetic', pieces: [], fabric: defaultFabric() }], options: bad } });
+    expect(messages).toEqual([{ type: 'error', code: 'nest.optionsInvalid' }]);
+  });
+  it('maps an unknown exception to a generic code', async () => {
+    const messages: WorkerResponse[] = [];
+    const scope: WorkerScope = { postMessage: message => messages.push(message) };
+    vi.stubGlobal('self', scope);
+    await import('../src/nest/worker');
+    scope.onmessage!({ data: undefined as unknown as WorkerRequest });
+    expect(messages).toEqual([{ type: 'error', code: 'nest.failed' }]);
   });
 });

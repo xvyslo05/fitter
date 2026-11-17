@@ -2,24 +2,25 @@ import { area, bbox, translate } from '../geom/polygon';
 import { mergeSpans, orientations } from './raster';
 import type { Raster, Span } from './raster';
 import type { Fabric, NestOptions, NestPiece, NestResult, Placement } from './types';
+import { AppError } from '../errors';
 export type { Fabric, NestOptions, NestPiece, NestResult, Placement, Rotation } from './types';
 
 function validate(pieces: NestPiece[], fabric: Fabric, opts: NestOptions) {
   if (!Number.isFinite(fabric.width) || fabric.width <= 0 || fabric.width > 1000 ||
       (fabric.length !== null && (!Number.isFinite(fabric.length) || fabric.length <= 0 || fabric.length > 10_000)))
-    throw new Error('Šířka látky musí být 0–1 000 cm a délka kusu 0–10 000 cm (bez nuly).');
+    throw new AppError('nest.fabricRange');
   if (!Number.isFinite(opts.resolution) || opts.resolution < 0.25 || opts.resolution > 1 ||
       !Number.isFinite(opts.gap) || opts.gap < 0 || opts.gap > 10 ||
       !Number.isFinite(opts.timeMs) || opts.timeMs < 0 || opts.timeMs > 60_000 || !Number.isFinite(opts.seed))
-    throw new Error('Neplatné nastavení: krok 0,25–1 cm, mezera 0–10 cm, čas 0–60 s.');
-  if (new Set(pieces.map(p => p.key)).size !== pieces.length) throw new Error('Klíče dílů musí být jedinečné.');
-  if (pieces.length > 500) throw new Error('Najednou lze umístit nejvýše 500 dílů.');
+    throw new AppError('nest.optionsInvalid');
+  if (new Set(pieces.map(p => p.key)).size !== pieces.length) throw new AppError('nest.duplicateKeys');
+  if (pieces.length > 500) throw new AppError('nest.tooManyPieces');
   for (const p of pieces) {
     const b = bbox(p.polygon);
     if (p.polygon.length < 3 || p.polygon.some(v => v.some(n => !Number.isFinite(n))) || area(p.polygon) <= 0 ||
         b.width > 10_000 || b.height > 10_000 || !['none', '180', '90'].includes(p.rotation))
-      throw new Error('Díl má neplatný obrys, rozměr nebo otáčení.');
-    if (p.foldEdge && !fabric.folded) throw new Error('Díl na přehybu vyžaduje složenou látku.');
+      throw new AppError('nest.pieceInvalid');
+    if (p.foldEdge && !fabric.folded) throw new AppError('nest.foldNeedsFolded');
   }
 }
 
@@ -85,8 +86,8 @@ const initialOrder = (pieces: NestPiece[]) => pieces.map((_, i) => i).sort((a, b
 export function nestOnce(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, order?: number[], orient?: number[]): NestResult {
   validate(pieces, fabric, opts);
   if (order && (order.length !== pieces.length || new Set(order).size !== pieces.length || order.some(i => !Number.isInteger(i) || i < 0 || i >= pieces.length)))
-    throw new Error('Pořadí musí obsahovat každý díl právě jednou.');
-  if (orient && orient.some(i => !Number.isInteger(i) || i < 0)) throw new Error('Neplatná volba otočení.');
+    throw new AppError('nest.orderInvalid');
+  if (orient && orient.some(i => !Number.isInteger(i) || i < 0)) throw new AppError('nest.orientInvalid');
   return placePass(pieces, fabric, opts, pieces.map(p => orientations(p, opts.gap, opts.resolution)), order ?? initialOrder(pieces), orient);
 }
 export function seededRandom(seed: number): () => number {

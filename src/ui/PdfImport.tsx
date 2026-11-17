@@ -11,7 +11,8 @@ import { rectangleProblems } from '../pdf/pieces';
 import type { PieceDraft, RectangleDraft } from '../pdf/pieces';
 import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
 import { area, bbox } from '../geom/polygon';
-import { fmt, plural, t } from '../i18n';
+import { AppError } from '../errors';
+import { describe, errorText, fmt, plural, t } from '../i18n';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
@@ -385,13 +386,13 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
       const answer: ScaleAnswer = detected.source === 'square' ? (scaleNo && measured.trim() ? { ok: false, measuredCm: parseDecimal(measured) } : { ok: true })
         : pieceOk === false && percent.trim() ? { percent: parseDecimal(percent) } : { ok: true };
       const resolved = resolveScale(detected, answer);
-      if ('error' in resolved) throw new Error(resolved.error);
+      if ('error' in resolved) return { options: null, message: describe(resolved.error) };
       const scale = resolved.scale;
       const options = { cmPerPt: scale.cmPerPt, gapMm: number(gap), resolutionMm: number(resolution), minAreaCm2: number(minArea) };
       if (!gap.trim() || !resolution.trim() || !minArea.trim() || !Object.values(options).every(Number.isFinite) || options.gapMm < 0 || options.gapMm > 6 ||
         options.resolutionMm < 0.25 || options.resolutionMm > 1 || options.minAreaCm2 < 0) throw new Error(t('pdf.sizes.settingsRange'));
       return { options, message: '' };
-    } catch (e) { return { options: null, message: e instanceof Error ? e.message : t('pdf.sizes.checkSettings') }; }
+    } catch (e) { return { options: null, message: errorText(e, 'pdf.sizes.checkSettings') }; }
   }, [detected, scaleNo, measured, pieceOk, percent, gap, resolution, minArea]);
   const selected = Object.values(assignments).some(s => s.trim());
   useEffect(() => {
@@ -406,13 +407,13 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
         worker = new Worker(new URL('../pdf/trace.worker.ts', import.meta.url), { type: 'module' });
         worker.onmessage = (event: MessageEvent<TraceResponse>) => {
           if (cancelled) return;
-          if ('result' in event.data) onResult(event.data.result); else if ('error' in event.data) setError(event.data.error);
+          if ('result' in event.data) onResult(event.data.result); else if ('error' in event.data) setError(describe(event.data.error));
           setBusy(false); worker?.terminate();
         };
         worker.onerror = () => { setError(t('pdf.sizes.traceFailedHint')); setBusy(false); worker?.terminate(); };
         const request: TraceRequest = { paths: sheet.content, texts: sheet.texts, assignments, options, scale: detected, excludeScaleMarks };
         worker.postMessage(request);
-      } catch (e) { setError(e instanceof Error ? e.message : t('pdf.sizes.traceFailed')); setBusy(false); worker?.terminate(); }
+      } catch (e) { setError(errorText(e, 'pdf.sizes.traceFailed')); setBusy(false); worker?.terminate(); }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); worker?.terminate(); };
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
@@ -485,7 +486,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       // The same validation drives both the editor and programmatic placement.
       placePages(doc, layout);
       return { layout, message: '' };
-    } catch (e) { return { layout: null, message: e instanceof Error ? e.message : t('pdf.layout.check') }; }
+    } catch (e) { return { layout: null, message: errorText(e, 'pdf.layout.check') }; }
   }, [doc, blocks, step]);
   const unused = doc && edited.layout ? unusedPages(doc, edited.layout) : [];
   const showEditors = manual || !detected?.confident || !edited.layout;
@@ -509,7 +510,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       if (!pattern.pieces.length) return { pattern: null, error: t('pdf.build.nothingLeft'), problems, candidates };
       parsePatternFile(pattern);
       return { pattern, error: '', problems, candidates };
-    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : t('pdf.build.failed'), problems: [], candidates: new Map<string, number | undefined>() }; }
+    } catch (e) { return { pattern: null, error: errorText(e, 'pdf.build.failed'), problems: [], candidates: new Map<string, number | undefined>() }; }
   }, [stage, traced, pieces, meta, name, skips]);
   // A repeated trace of the same sheet gives the same result: keep the user's edits then.
   function toPieces() {
@@ -549,7 +550,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       console.error('PDF import failed', e);
       if (request.current !== id) return;
       const name = e instanceof Error ? e.name : '';
-      setError(name === 'PasswordException' ? t('pdf.error.password')
+      setError(e instanceof AppError ? describe(e) : name === 'PasswordException' ? t('pdf.error.password')
         : name === 'InvalidPDFException' ? t('pdf.error.invalid')
         : t('pdf.error.load', { cause: e instanceof Error ? `${e.name}: ${e.message}` : String(e) }));
     }
@@ -579,7 +580,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
         <p class="pdf-summary"><strong>{name}</strong> · {t('pdf.pageCountLabel', { count: doc.pages.length })}</p>
         <div class="pdf-workspace"><div class="pdf-editor"><h3 ref={editors} tabIndex={-1}>{t('pdf.blocks.title')}</h3>
           {!manual && <p class="warning" role="status">{t(edited.layout ? 'pdf.blocks.unsure' : 'pdf.blocks.fix')}</p>}
-          <p class="small muted">{t('pdf.blocks.detection', { source: detected.source })}</p>
+          <p class="small muted">{t('pdf.blocks.detection', { source: detected.sources.map(code => describe({ code })).join(' + ') })}</p>
           <p class="small muted">{t('pdf.blocks.help')}</p>
           {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>{t('pdf.block.title', { n: i + 1 })}</legend>
             <div class="field-row"><label class="field"><span>{t('pdf.block.from')}</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>

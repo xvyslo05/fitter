@@ -1,4 +1,4 @@
-import { fmt, t } from '../i18n';
+import { describe, fmt, t } from '../i18n';
 import type { PatternFile, SeamAllowance } from '../model/pattern';
 import type { PieceProblem, Skip } from '../pdf/build';
 
@@ -51,7 +51,7 @@ export function Save({ meta, onChange, patterns, suggestedSeam, pattern, error, 
               {p.problem === 'fold' && <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId, size: p.size, fold: true }, t('pdf.save.labelNoFold', { label }))}>{t('pdf.save.noFold')}</button>}
               <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId, size: p.size }, t('pdf.save.labelSkipped', { label }))}>{t('pdf.save.skipSize')}</button>
               <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId }, t('pdf.save.pieceSkipped', { piece }))}>{t('pdf.save.skipPiece')}</button></span>
-            <details><summary>{t('pdf.save.technical')}</summary><p class="small">{p.message}</p></details></li>;
+            <details><summary>{t('pdf.save.technical')}</summary><p class="small">{describe(p.error)}</p></details></li>;
         })}</ul></div>}
       {skipped.length > 0 && <p class="small muted">{t('pdf.save.skipped', { list: skipped.map(s => s.label).join(' · ') })}</p>}
       {pattern && <><p class="small muted">{t('pdf.save.counts', { pieces: pattern.pieces.length, sizes: pattern.sizes.length })}</p>

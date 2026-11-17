@@ -1,3 +1,4 @@
+import { toNote } from '../errors';
 import { nest } from './nest';
 import type { WorkerRequest, WorkerResponse } from './types';
 
@@ -11,6 +12,7 @@ self.onmessage = ({ data }: MessageEvent<WorkerRequest>) => {
     }
     send({ type: 'done' });
   } catch (error) {
-    send({ type: 'error', message: error instanceof Error ? error.message : 'Výpočet se nezdařil.' });
+    // Plain fields only: an Error instance would lose its code and params in the structured clone.
+    send({ type: 'error', ...toNote(error, 'nest.failed') });
   }
 };

@@ -1,3 +1,5 @@
+import type { Note } from '../errors';
+
 export type Pt = [number, number];
 export type Color = [number, number, number];
 export interface PdfPath {
@@ -34,4 +36,4 @@ export interface TraceRequest {
   scale?: ScaleResult; excludeScaleMarks?: boolean;
 }
 export interface SuggestRequest { suggest: true; paths: PdfPath[]; texts: PdfText[]; scale: ScaleResult }
-export type TraceResponse = { result: TraceResult } | { suggestion: Record<string, string> } | { error: string };
+export type TraceResponse = { result: TraceResult } | { suggestion: Record<string, string> } | { error: Note };

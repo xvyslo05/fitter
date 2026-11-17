@@ -1,5 +1,5 @@
 import type { Ref } from 'preact';
-import { t } from '../i18n';
+import { describe, t } from '../i18n';
 import { DEFAULT_GAP_CM, changedSettings, resetSettings } from '../model/prepare';
 import type { Settings } from '../model/prepare';
 import { NumberField, RotationSelect } from './fields';
@@ -8,7 +8,7 @@ import { NumberField, RotationSelect } from './fields';
 export function Refine({ settings, onSettings, detailsRef }: { settings: Settings; onSettings: (settings: Settings) => void; detailsRef: Ref<HTMLDetailsElement> }) {
   const changed = changedSettings(settings);
   return <div class="refine">
-    <details id="refine" ref={detailsRef} class="advanced"><summary>{changed.length ? t('refine.summaryChanged', { list: changed.join(', ') }) : t('refine.summaryDefault')}</summary>
+    <details id="refine" ref={detailsRef} class="advanced"><summary>{changed.length ? t('refine.summaryChanged', { list: changed.map(describe).join(', ') }) : t('refine.summaryDefault')}</summary>
       <h4>{t('refine.allowances')}</h4>
       <div class="field-row"><NumberField id="seam-amount" label={t('refine.seamAmount')} value={settings.seamAmount} max={10} onChange={seamAmount => onSettings({ ...settings, seamAmount })} />
         <NumberField label={t('refine.gap')} value={settings.gap} max={10} onChange={gap => onSettings({ ...settings, gap })} /></div>

@@ -119,7 +119,7 @@ describe('tracing', () => {
       testPath(squareRing(s * 2, 0, pt(2)), { closed: [true] })];
     expect(traceOutlines(paths, opts)).toHaveLength(1);
     expect(traceOutlines([], opts)).toEqual([]);
-    expect(() => traceOutlines(paths, { ...opts, cmPerPt: 0 })).toThrow();
+    expect(() => traceOutlines(paths, { ...opts, cmPerPt: 0 })).toThrow('pdf.traceSettings');
   });
   it('combines multiple styles assigned to the same size', () => {
     const side = pt(10), a = testPath([[0, 0], [side, 0], [side, side]]);

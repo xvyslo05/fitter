@@ -13,13 +13,13 @@ describe('PDF scale', () => {
     expect(result.squarePt![2]).toBeCloseTo(result.measuredPt!, 2);
     expect(result.squarePt![3]).toBeCloseTo(result.measuredPt!, 2);
     expect(overrideScale(result, 10).cmPerPt).toBe(10 / 140);
-    expect(() => overrideScale(result, 0)).toThrow();
-    expect(() => overrideScale(result, NaN)).toThrow();
+    expect(() => overrideScale(result, 0)).toThrow('scale.squareSize');
+    expect(() => overrideScale(result, NaN)).toThrow('scale.squareSize');
   });
   it('falls back to 100% without a square and ignores open and non-square shapes', async () => {
     const doc = await readPdf(pdfBytes([{ content: '20 20 100 80 re S 0 0 m 140 0 l 140 140 l 0 140 l S' }]));
     expect(detectScale(doc)).toEqual({ source: 'default', cmPerPt: CM_PER_PT });
-    expect(() => overrideScale(detectScale(doc), 5)).toThrow();
+    expect(() => overrideScale(detectScale(doc), 5)).toThrow('scale.squareSize');
   });
   it('recognises a closed point path and snaps a standard 3 cm side', async () => {
     const doc = await readPdf(pdfBytes([{ content: '10 10 m 95 10 l 95 95 l 10 95 l h S' }]));
@@ -37,9 +37,9 @@ describe('PDF scale', () => {
     const smaller = resolveScale(square, { ok: false, measuredCm: 4.8 }), scaled = resolveScale(none, { percent: 97 });
     expect('scale' in smaller && smaller.scale.cmPerPt).toBeCloseTo(square.cmPerPt * 0.96, 12);
     expect('scale' in scaled && scaled.scale.cmPerPt).toBeCloseTo(CM_PER_PT * 0.97, 12);
-    for (const bad of [{ ok: false as const, measuredCm: NaN }, { ok: false as const, measuredCm: 0 }, { ok: false as const, measuredCm: -3 }]) expect(resolveScale(square, bad)).toHaveProperty('error');
-    for (const bad of [NaN, 0, -5, Infinity]) expect(resolveScale(none, { percent: bad })).toHaveProperty('error');
-    expect(resolveScale(none, { ok: false, measuredCm: 5 })).toHaveProperty('error');
+    for (const bad of [{ ok: false as const, measuredCm: NaN }, { ok: false as const, measuredCm: 0 }, { ok: false as const, measuredCm: -3 }]) expect(resolveScale(square, bad)).toEqual({ error: { code: 'scale.measured' } });
+    for (const bad of [NaN, 0, -5, Infinity]) expect(resolveScale(none, { percent: bad })).toEqual({ error: { code: 'scale.percent' } });
+    expect(resolveScale(none, { ok: false, measuredCm: 5 })).toEqual({ error: { code: 'scale.squareMissing' } });
   });
   it('reads inch labels and converts them to cm', async () => {
     const two = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 144 144 re S BT /F1 12 Tf 20 25 Td (2" x 2") Tj ET' }])));

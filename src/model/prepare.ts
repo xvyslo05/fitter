@@ -1,3 +1,5 @@
+import { AppError, note } from '../errors';
+import type { Note } from '../errors';
 import { alignFoldOutline, clipAtFold, foldIsVertical, mirrorX, normalize, offset, orientFold, unfold } from '../geom/polygon';
 import type { Fabric, NestOptions, NestPiece, Rotation } from '../nest/types';
 import type { PatternFile, Piece } from './pattern';
@@ -62,83 +64,81 @@ export function includedPieces(pattern: PatternFile, line: OrderLine): Piece[] {
 }
 const inRange = (v: number, min: number, max: number) => Number.isFinite(v) && v >= min && v <= max;
 // Checks the settings the nester validates, so the error shows before a run instead of failing in the worker.
-// These fields live in the collapsed "Upřesnit" block, which opens when this returns a message.
-export function checkSettings(settings: Settings): string | null {
-  if (!inRange(settings.seamAmount, 0, 10)) return 'Přídavek na švy musí být v rozmezí 0–10 cm.';
-  if (!inRange(settings.gap, 0, 10)) return 'Mezera mezi díly musí být v rozmezí 0–10 cm.';
-  if (!inRange(settings.resolution, 0.25, 1)) return 'Přesnost musí být 0,25–1 cm.';
-  if (!inRange(settings.timeMs, 0, 60_000)) return 'Čas hledání musí být v rozmezí 0–60 s.';
-  if (!Number.isFinite(settings.seed)) return 'Číslo pokusu musí být číslo.';
+// These fields live in the collapsed "Upřesnit" block, which opens when this returns a note.
+export function checkSettings(settings: Settings): Note | null {
+  if (!inRange(settings.seamAmount, 0, 10)) return note('settings.seamRange');
+  if (!inRange(settings.gap, 0, 10)) return note('settings.gapRange');
+  if (!inRange(settings.resolution, 0.25, 1)) return note('settings.resolutionRange');
+  if (!inRange(settings.timeMs, 0, 60_000)) return note('settings.timeRange');
+  if (!Number.isFinite(settings.seed)) return note('settings.seedNumber');
   return null;
 }
-export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>, materials: string[]): string | null {
+export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>, materials: string[]): Note | null {
   const problem = checkSettings(settings);
   if (problem) return problem;
   for (const material of materials) {
     const f = own(fabrics, material) ?? defaultFabric();
-    if (!(f.width > 0 && f.width <= 1000)) return `${material}: šířka látky musí být větší než 0 a nejvýše 1 000 cm.`;
-    if (f.length !== null && !(f.length > 0 && f.length <= 10_000)) return `${material}: délka kusu musí být větší než 0 a nejvýše 10 000 cm.`;
+    if (!(f.width > 0 && f.width <= 1000)) return note('fabric.widthRange', { material });
+    if (f.length !== null && !(f.length > 0 && f.length <= 10_000)) return note('fabric.lengthRange', { material });
   }
   return null;
 }
 // What differs from the defaults in the "Upřesnit" block, for its header. The per-pattern seam
 // switches (addSeam) are not part of it: they sit with each pattern.
-export function changedSettings(settings: Settings): string[] {
-  const num = (n: number) => Number.isFinite(n) ? String(Math.round(n * 100) / 100).replace('.', ',') : '?';
-  const changed: string[] = [];
-  if (settings.seamAmount !== defaultSettings.seamAmount) changed.push(`přídavek na švy ${num(settings.seamAmount)} cm`);
-  if (settings.gap !== defaultSettings.gap) changed.push(`mezera ${num(settings.gap)} cm`);
-  if (settings.rotation !== defaultSettings.rotation) changed.push(settings.rotation === 'none' ? 'díly se neotáčejí' : 'díly i napříč');
-  if (settings.mirroredPairs !== defaultSettings.mirroredPairs) changed.push('páry nezrcadlově');
-  if (settings.resolution !== defaultSettings.resolution) changed.push(settings.resolution === 0.25 ? 'jemná přesnost' : settings.resolution === 1 ? 'hrubá přesnost' : `přesnost ${num(settings.resolution)} cm`);
-  if (settings.timeMs !== defaultSettings.timeMs) changed.push(`hledání ${num(settings.timeMs / 1000)} s`);
-  if (settings.seed !== defaultSettings.seed) changed.push(`číslo pokusu ${num(settings.seed)}`);
+export function changedSettings(settings: Settings): Note[] {
+  const value = (n: number) => ({ value: Math.round(n * 100) / 100 });
+  const changed: Note[] = [];
+  if (settings.seamAmount !== defaultSettings.seamAmount) changed.push(note('changed.seam', value(settings.seamAmount)));
+  if (settings.gap !== defaultSettings.gap) changed.push(note('changed.gap', value(settings.gap)));
+  if (settings.rotation !== defaultSettings.rotation) changed.push(note(settings.rotation === 'none' ? 'changed.rotationNone' : 'changed.rotationCross'));
+  if (settings.mirroredPairs !== defaultSettings.mirroredPairs) changed.push(note('changed.mirrorOff'));
+  if (settings.resolution !== defaultSettings.resolution) changed.push(settings.resolution === 0.25 ? note('changed.precisionFine') : settings.resolution === 1 ? note('changed.precisionCoarse') : note('changed.precisionCustom', value(settings.resolution)));
+  if (settings.timeMs !== defaultSettings.timeMs) changed.push(note('changed.time', value(settings.timeMs / 1000)));
+  if (settings.seed !== defaultSettings.seed) changed.push(note('changed.seed', value(settings.seed)));
   return changed;
 }
 // Everything but the per-pattern seam switches goes back to the defaults.
 export const resetSettings = (settings: Settings): Settings => ({ ...structuredClone(defaultSettings), addSeam: settings.addSeam });
 // Order lines that use a pattern, counted before deleting it.
 export const linesUsing = (order: OrderLine[], patternId: string): number => order.filter(line => line.patternId === patternId).length;
-export function deleteQuestion(name: string, lines: number): string {
-  const rows = lines === 1 ? 'řádek' : lines < 5 ? 'řádky' : 'řádků';
-  return lines ? `Smazat střih „${name}“? Zmizí i ze seznamu Co šiju (${lines} ${rows}). Nejde to vrátit.` : `Smazat střih „${name}“? Nejde to vrátit.`;
-}
+export const deleteQuestion = (name: string, lines: number): Note => lines ? note('delete.withLines', { name, n: lines }) : note('delete.plain', { name });
 // True when the plan is exactly the untouched sample row, so a freshly saved pattern may take its place.
 export function shouldReplaceDemo(order: OrderLine[], demoId: string): boolean {
   const [line] = order;
   return order.length === 1 && line.patternId === demoId && line.quantity === 1 &&
     Object.keys(line.include).length === 0 && Object.keys(line.rotations).length === 0;
 }
-const pieces = (n: number) => n === 1 ? 'kus' : n < 5 ? 'kusy' : 'kusů';
 export interface PreparedOrder {
   materials: Record<string, NestPiece[]>;
-  notes: string[];
+  notes: Note[];
   mirroredKeys: string[];
 }
 export function prepare(
   patterns: PatternFile[], order: OrderLine[], fabrics: Record<string, Fabric>, settings: Settings,
 ): PreparedOrder {
   if (!Number.isFinite(settings.seamAmount) || settings.seamAmount < 0 || settings.seamAmount > 10)
-    throw new Error('Přídavek na švy musí být v rozmezí 0–10 cm.');
+    throw new AppError('settings.seamRange');
   const materials: Record<string, NestPiece[]> = Object.create(null);
-  const notes = new Set<string>(), mirroredKeys: string[] = [];
+  // Keyed by the note's JSON: the same note from several lines or pieces is listed once, in first-seen order.
+  const notes = new Map<string, Note>(), mirroredKeys: string[] = [];
+  const addNote = (n: Note) => { notes.set(JSON.stringify(n), n); };
   // Surplus mirrored copies per pattern/piece/material, summed over order lines.
   const surplus = new Map<string, { label: string; count: number }>();
   let total = 0;
   for (const line of order) {
     const pattern = patterns.find(p => p.id === line.patternId);
-    if (!pattern) { notes.add('Vybraný střih není v knihovně. Importujte jej znovu.'); continue; }
-    if (!pattern.sizes.includes(line.size)) throw new Error(`${pattern.name}: vyberte platnou velikost.`);
+    if (!pattern) { addNote(note('prepare.patternMissing')); continue; }
+    if (!pattern.sizes.includes(line.size)) throw new AppError('prepare.invalidSize', { pattern: pattern.name });
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 100)
-      throw new Error('Počet kusů: zadejte celé číslo 1–100.');
+      throw new AppError('prepare.quantityRange');
     for (const piece of includedPieces(pattern, line)) {
       const shape = piece.sizes[line.size];
       const aligned = shape.fold ? alignFoldOutline(shape.outline, shape.fold) : { polygon: shape.outline, adjusted: false };
-      if (aligned.adjusted) notes.add(`${pattern.name}: obrys u přehybu byl srovnán s vyznačenou hranou (tolerance 0,2 cm).`);
+      if (aligned.adjusted) addNote(note('prepare.foldAligned', { pattern: pattern.name }));
       const allowance = piece.seamAllowance ?? pattern.seamAllowance;
       const addSeam = own(settings.addSeam, pattern.id) ?? allowance === 'none';
       if (allowance === 'unknown' || allowance === 'mixed')
-        notes.add(`${pattern.name}: přídavek na švy není jednoznačný; ověřte ho podle střihu.`);
+        addNote(note('prepare.seamUnclear', { pattern: pattern.name }));
       const cuts = new Map<string, number>();
       for (const cut of piece.cut) cuts.set(cut.material, (cuts.get(cut.material) ?? 0) + cut.count);
       for (const [material, count] of cuts) {
@@ -148,7 +148,7 @@ export function prepare(
           ? (keepFold ? orientFold(aligned.polygon, shape.fold) : unfold(aligned.polygon, shape.fold))
           : normalize(aligned.polygon);
         if (fabric.folded && shape.fold && !keepFold)
-          notes.add(`${pattern.name} · ${piece.name}: přehyb není svislý (±1°); díl je rozvinutý a stříhá se ve dvou vrstvách.`);
+          addNote(note('prepare.foldNotVertical', { pattern: pattern.name, piece: piece.name }));
         if (addSeam && settings.seamAmount > 0) {
           polygon = offset(polygon, settings.seamAmount);
           if (keepFold) polygon = clipAtFold(polygon);
@@ -166,7 +166,7 @@ export function prepare(
         }
         materials[material] ??= [];
         for (let garment = 0; garment < line.quantity; garment++) for (let j = 0; j < placements; j++) {
-          if (++total > 500) throw new Error('Je toho moc najednou. Rozdělte šití na části do 500 dílů.');
+          if (++total > 500) throw new AppError('prepare.tooMany');
           const i = garment * placements + j;
           const key = JSON.stringify([line.id, piece.id, material, i]);
           const mirrored = !fabric.folded && settings.mirroredPairs && j % 2 === 1;
@@ -181,6 +181,6 @@ export function prepare(
       }
     }
   }
-  for (const { label, count } of surplus.values()) notes.add(`${label}: vystřihne se ${count} ${pieces(count)} navíc (zrcadlově).`);
-  return { materials, notes: [...notes], mirroredKeys };
+  for (const { label, count } of surplus.values()) addNote(note('prepare.surplus', { label, n: count }));
+  return { materials, notes: [...notes.values()], mirroredKeys };
 }

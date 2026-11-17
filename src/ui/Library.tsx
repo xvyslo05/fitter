@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { PatternFile } from '../model/pattern';
 import { demo } from '../model/demo';
-import { t } from '../i18n';
+import { describe, t } from '../i18n';
 import { deleteQuestion } from '../model/prepare';
 
 // A library row. Deleting is two steps: "⋯" opens the menu, "Smazat střih…" asks inline, "Ponechat" has the focus.
@@ -18,7 +18,7 @@ function LibraryItem({ pattern, lines, onAdd, onDelete }: { pattern: PatternFile
         onClick={() => setMode(m => m === 'idle' ? 'menu' : 'idle')}>⋯</button>}
     </div>
     {mode === 'menu' && <div class="library-menu"><button type="button" class="text-button danger-text" onClick={() => setMode('confirm')}>{t('library.deleteMenu')}</button></div>}
-    {mode === 'confirm' && <div class="delete-confirm" role="group" aria-label={t('library.deleteGroup')}><p>{deleteQuestion(pattern.name, lines)}</p>
+    {mode === 'confirm' && <div class="delete-confirm" role="group" aria-label={t('library.deleteGroup')}><p>{describe(deleteQuestion(pattern.name, lines))}</p>
       <div class="field-row"><button type="button" class="secondary danger-button" onClick={onDelete}>{t('library.deleteConfirm')}</button>
         <button type="button" class="secondary" ref={keep} onClick={close}>{t('library.keep')}</button></div></div>}
   </div>;

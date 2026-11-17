@@ -1,3 +1,5 @@
+import { AppError, toNote } from '../errors';
+import type { ErrorCode, Note } from '../errors';
 import { area, bbox, rotate, signedArea } from '../geom/polygon';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile, Piece, PieceSize, SeamAllowance } from '../model/pattern';
@@ -28,7 +30,7 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
   const k = result.cmPerPt, ids = new Set<string>();
   const pieces = drafts.filter(d => d.include).flatMap((draft): Piece[] => {
     const candidate = result.candidates.find(c => c.id === draft.candidateId);
-    if (!candidate) throw new Error(`Díl ${draft.candidateId} už mezi nalezenými díly není.`);
+    if (!candidate) throw new AppError('build.pieceGone', { id: draft.candidateId });
     const origin = centroid(openRing(candidate.sizes[candidate.refSize])), folds = sizeFolds(candidate, draft.foldEdge, k);
     const place = (points: Pt[]): Pt[] => rotate(points.map(([x, y]) => [x - origin[0], y - origin[1]]), 90 - draft.grainAngle).map(([x, y]) => [x * k, y * k]);
     const shape = (ring: Pt[], fold: [Pt, Pt] | null | undefined): PieceSize => {
@@ -57,23 +59,23 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
     const edge = draft.foldEdge === null ? undefined : foldEdges(candidate, k)[draft.foldEdge];
     const group = draft.variantGroup.trim() || draft.name.trim();
     return draft.variants.map((variant): Piece => {
-      const label = variant.label.trim(), where = `Díl „${draft.name.trim()}“, varianta „${label}“`;
-      if (!label) throw new Error(`Díl „${draft.name.trim()}“: varianta nemá název.`);
+      const label = variant.label.trim(), where = { name: draft.name.trim(), variant: label };
+      if (!label) throw new AppError('build.variantNoName', { name: where.name });
       const sizes: Record<string, PieceSize> = {};
       for (const size of sizeList) {
         const from = draft.allSizes ? candidate.refSize : size, selected = variant.cells[from];
         if (!selected?.length) continue;
         const cells = selected.map(cellId => {
           const cell = candidate.cells?.[from]?.find(c => c.id === cellId);
-          if (!cell) throw new Error(`${where}, velikost ${size}: buňka ${cellId} neexistuje.`);
+          if (!cell) throw new AppError('build.cellMissing', { ...where, size, cell: cellId });
           return openRing(cell.ring);
         });
         let ring: Pt[];
         try { ring = unionCells(cells, k, result.resolutionMm ?? 0.5); }
-        catch (e) { throw new Error(`${where}, velikost ${size}: ${e instanceof Error ? e.message : String(e)}`); }
+        catch (e) { throw new AppError('build.variantUnion', { ...where, size, reason: toNote(e) }); }
         sizes[size] = shape(ring, snapFoldAt(ring, edge, k));
       }
-      if (!Object.keys(sizes).length) throw new Error(`${where}: žádná velikost nemá vybrané buňky.`);
+      if (!Object.keys(sizes).length) throw new AppError('build.variantNoSizes', where);
       const id = uniqueId(`${slug(draft.name) || `dil-${candidate.id}`}-${slug(label) || 'varianta'}`, ids);
       ids.add(id);
       return { id, name: `${draft.name.trim()} – ${label}`, ...common, variantGroup: group, variant: label, sizes };
@@ -96,25 +98,27 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
     sizes: meta.sizes.filter(s => pieces.some(p => Object.hasOwn(p.sizes, s))), pieces };
 }
 
-export interface PieceProblem { pieceId: string; pieceName: string; size: string; problem: 'outline' | 'fold' | 'other'; message: string }
+export interface PieceProblem { pieceId: string; pieceName: string; size: string; problem: 'outline' | 'fold' | 'other'; error: Note }
 // What the user may drop from the built pattern: one size of a piece, its fold, or the whole piece.
 export interface Skip { pieceId: string; size?: string; fold?: boolean }
 
+// Failures that name the outline (the fold one says the fold must lie on an edge of it).
+const OUTLINE_CODES: ErrorCode[] = ['pattern.outlineInvalid', 'pattern.foldEdge'];
 // Validates every size of every piece on its own, so one bad outline names its piece and size.
 export function checkPieces(pattern: PatternFile): PieceProblem[] {
   const problems: PieceProblem[] = [];
-  const attempt = (piece: Piece, size: string, shape: PieceSize) => {
-    try { parsePatternFile({ ...pattern, sizes: [size], pieces: [{ ...piece, sizes: { [size]: shape } }] }); return ''; }
-    catch (e) { return e instanceof Error ? e.message : String(e); }
+  const attempt = (piece: Piece, size: string, shape: PieceSize): Note | null => {
+    try { parsePatternFile({ ...pattern, sizes: [size], pieces: [{ ...piece, sizes: { [size]: shape } }] }); return null; }
+    catch (e) { return toNote(e); }
   };
   for (const piece of pattern.pieces) for (const [size, shape] of Object.entries(piece.sizes)) {
-    const message = attempt(piece, size, shape);
-    if (!message) continue;
+    const error = attempt(piece, size, shape);
+    if (!error) continue;
     // A fold that fails alone is a fold problem; otherwise the outline is named when the validator does.
     const withoutFold = { ...shape };
     delete withoutFold.fold;
-    const problem = shape.fold && !attempt(piece, size, withoutFold) ? 'fold' : message.includes('obrys') ? 'outline' : 'other';
-    problems.push({ pieceId: piece.id, pieceName: piece.name, size, problem, message });
+    const problem = shape.fold && !attempt(piece, size, withoutFold) ? 'fold' : OUTLINE_CODES.includes(error.code) ? 'outline' : 'other';
+    problems.push({ pieceId: piece.id, pieceName: piece.name, size, problem, error });
   }
   return problems;
 }

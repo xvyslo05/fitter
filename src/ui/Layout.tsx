@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'preact/hooks';
 import { bbox } from '../geom/polygon';
-import { fmt, t } from '../i18n';
+import { describe, fmt, t } from '../i18n';
 import type { Pt } from '../model/pattern';
 import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
 import { lengthToBuy, placedSentence } from '../model/summary';
@@ -89,7 +89,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
     setPointer(p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= displayLength ? { x: p.x, y: p.y, cx: e.clientX, cy: e.clientY } : null);
   }
   return <article class="result-card">
-    <div class="result-heading"><div><p class="eyebrow">{t(fabric.folded ? 'layout.twoLayers' : 'layout.oneLayer')} · {placedSentence(result.placements.length, pieces.length)}</p><h3>{material}</h3></div>
+    <div class="result-heading"><div><p class="eyebrow">{t(fabric.folded ? 'layout.twoLayers' : 'layout.oneLayer')} · {describe(placedSentence(result.placements.length, pieces.length))}</p><h3>{material}</h3></div>
       <span class={`badge print-legacy ${result.unplaced.length ? 'amber' : ''}`}>{t('layout.placedBadge', { placed: result.placements.length, total: pieces.length })}</span></div>
     <dl class="stats print-legacy"><div><dt>{t('layout.dimensions')}</dt><dd>{cm(width)} × {cm(length)} <small>cm</small></dd></div>
       <div><dt>{t('layout.usedLength')}</dt><dd>{cm(result.usedLength)} <small>cm</small></dd></div>

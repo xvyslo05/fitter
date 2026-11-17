@@ -117,9 +117,9 @@ describe('nesting', () => {
   });
   it('rejects invalid numeric settings and duplicate keys', () => {
     const fabric = { width: 150, length: null, folded: false };
-    expect(() => nestOnce([square('a')], fabric, { ...options, resolution: 0 })).toThrow();
-    expect(() => nestOnce([square('a'), square('a')], fabric, options)).toThrow();
-    expect(() => nestOnce([square('a')], { ...fabric, width: NaN }, options)).toThrow();
+    expect(() => nestOnce([square('a')], fabric, { ...options, resolution: 0 })).toThrow('nest.optionsInvalid');
+    expect(() => nestOnce([square('a'), square('a')], fabric, options)).toThrow('nest.duplicateKeys');
+    expect(() => nestOnce([square('a')], { ...fabric, width: NaN }, options)).toThrow('nest.fabricRange');
   });
   it('runs a greedy pass for 30 mixed 5–60 cm pieces on a 150 cm roll in under 1500 ms', () => {
     const pieces = mixedPieces(30), fabric = { width: 150, length: null, folded: false };

@@ -1,3 +1,4 @@
+import type { ErrorCode, ErrorParams } from '../errors';
 import type { Pt } from '../model/pattern';
 
 export type Rotation = 'none' | '180' | '90';
@@ -31,4 +32,4 @@ export type WorkerRequest = { jobs: NestJob[]; options: NestOptions };
 export type WorkerResponse =
   | { type: 'progress' | 'result'; material: string; result: NestResult }
   | { type: 'done' }
-  | { type: 'error'; message: string };
+  | { type: 'error'; code: ErrorCode; params?: ErrorParams };

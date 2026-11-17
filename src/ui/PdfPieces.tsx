@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 import { bbox, pointSegmentDistance } from '../geom/polygon';
-import { fmt, t } from '../i18n';
+import { describe, fmt, t } from '../i18n';
 import { unionCells } from '../pdf/proposals';
 import { foldEdges, newRectangle, openRing, rectangleProblems, RECTANGLE_MAX_CM, sizeFolds, snapFoldAt } from '../pdf/pieces';
 import type { Edge, PieceDraft, RectangleDraft, VariantDraft } from '../pdf/pieces';
@@ -143,7 +143,7 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
             onClick={() => setCuts(draft.cut.filter((_, n) => n !== i))}>×</button>
         </div>)}
         <button type="button" class="text-button" onClick={() => setCuts([...draft.cut, { material: '', count: 1 }])}>{t('pdf.cut.add')}</button>
-        {draft.hint && <p class="warning small">{draft.hint}</p>}
+        {draft.hint && <p class="warning small">{draft.hint.map(describe).join(' ')}</p>}
       </div>
       <label class="check"><input type="checkbox" checked={draft.foldEdge !== null} disabled={!edges.length}
         onChange={e => onChange({ foldEdge: e.currentTarget.checked ? longest : null })} />
@@ -206,7 +206,7 @@ function RectangleCard({ index, rectangle, onChange, onRemove }: {
   const length = (label: string, value: number, onInput: (n: number) => void) => <label class="field"><span>{label}</span>
     <span class="input-unit"><input type="number" min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(value) ? value : ''}
       onInput={e => onInput(e.currentTarget.valueAsNumber)} /><span aria-hidden="true">{t('unit.cm')}</span></span></label>;
-  const problems = rectangleProblems(rectangle);
+  const problems = rectangleProblems(rectangle).map(describe);
   return <article class="pdf-piece" aria-label={t('pdf.rect.label', { n: index + 1 })}>
     <div class="pdf-piece-heading"><h4>{t('pdf.rect.title', { n: index + 1 })}</h4>
       <button type="button" class="text-button" onClick={onRemove}>{t('pdf.rect.remove')}</button></div>

@@ -48,16 +48,16 @@ describe('PDF layout and placement', () => {
       });
       return { content: `q 1 0 0 -1 0 300 cm ${paths.join('\n')} Q` };
     });
-    const doc = await readPdf(pdfBytes(contents)), { layout, source } = detectLayout(doc);
+    const doc = await readPdf(pdfBytes(contents)), { layout, sources } = detectLayout(doc);
     expect(layout).toEqual({ step: [200, 300], blocks: [{ pages: [1, 4], rows: [2, 2] }] });
-    expect(source).toContain('návaznost hran');
+    expect(sources).toContain('source.seams');
     expect(placePages(doc, layout).seams.every(s => s.matched)).toBe(true);
   });
   it('uses common crop frames and tile labels when geometry gives no translations', async () => {
     const doc = await readPdf(pdfBytes(['A1', 'A2', 'B1', 'B2'].map(label => ({ content: `10 10 180 280 re S BT /F1 12 Tf 20 20 Td (${label}) Tj ET` }))));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout).toEqual({ step: [180, 280], blocks: [{ pages: [1, 4], rows: [2, 2] }] });
-    expect(source).toContain('popisky');
+    expect(sources).toContain('source.labels');
     expect(placePages(doc, layout).seams.every(s => !s.matched)).toBe(true);
   });
   it('detects the step from repeated corner registration crosses without full frame lines', async () => {
@@ -79,9 +79,9 @@ describe('PDF layout and placement', () => {
     expect(placements.slice(0, 7).map(p => [p.col, p.row])).toEqual([[0, 0], [1, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2]]);
     expect(placements[7].x).toBe(596);
     expect(placements[7].y).toBe(0);
-    expect(() => placePages(doc, { ...layout, step: [0, 280] })).toThrow(/Krok/);
-    expect(() => placePages(doc, { ...layout, blocks: [{ pages: [1, 4], rows: [2, 1] }] })).toThrow(/Součet/);
-    expect(() => placePages(doc, { ...layout, blocks: [layout.blocks[0], layout.blocks[0]] })).toThrow(/opakuje/);
+    expect(() => placePages(doc, { ...layout, step: [0, 280] })).toThrow('pdf.stepInvalid');
+    expect(() => placePages(doc, { ...layout, blocks: [{ pages: [1, 4], rows: [2, 1] }] })).toThrow('pdf.rowSum');
+    expect(() => placePages(doc, { ...layout, blocks: [layout.blocks[0], layout.blocks[0]] })).toThrow('pdf.pageReused');
   });
   it('keeps complementary dash phases, including ExtGState and restored styles', async () => {
     const doc = await readPdf(pdfBytes([{ content: '[10 10] 0 d 0 0 m 100 0 l S q /GS gs 0 0 m 100 0 l S Q 0 0 m 100 0 l S' }],
@@ -192,9 +192,9 @@ describe('PDF layout and placement', () => {
   it('reads an assembly overview of stroked cells when tiles share no content', async () => {
     const cells = rects([[20, 20], [74, 20], [20, 110], [74, 110]]);
     const doc = await readPdf(pdfBytes([{ content: cells }, ...linkedTiles(4)]));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout.blocks).toEqual([{ pages: [2, 5], rows: [2, 2] }]);
-    expect(source).toContain('náhled skládání');
+    expect(sources).toContain('source.overview');
   });
   it('reads an assembly overview drawn with thin filled bands, one group per sheet', async () => {
     const band = (x: number, y: number, w: number, h: number) => `${x} ${y} ${w} ${h} re f`;
@@ -202,44 +202,44 @@ describe('PDF layout and placement', () => {
       ...Array.from({ length: rows + 1 }, (_, r) => band(x, y + r * 90 - 0.4, cols * 54, 0.8)),
       ...Array.from({ length: cols + 1 }, (_, c) => band(x + c * 54 - 0.4, y, 0.8, rows * 90))].join(' ');
     const doc = await readPdf(pdfBytes(linkedTiles(6, `${grid(20, 20, 2, 2)} ${grid(20 + 120, 20, 2, 1)}`)));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout.blocks).toEqual([{ pages: [1, 4], rows: [2, 2] }, { pages: [5, 6], rows: [2] }]);
-    expect(source).toContain('náhled skládání');
+    expect(sources).toContain('source.overview');
   });
   it('does not accept an overview without supporting links', async () => {
     const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [74, 20], [20, 110], [74, 110]]) }, ...Array.from({ length: 4 }, () => ({ content: '' }))]));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout.blocks.every(b => b.pages[0] === b.pages[1])).toBe(true);
-    expect(source).not.toContain('náhled skládání');
-    expect(source).toContain('bloky je třeba zadat');
+    expect(sources).not.toContain('source.overview');
+    expect(sources).toContain('source.manual');
   });
   it('does not accept an overview whose cells are separated by gaps', async () => {
     const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [90, 20], [20, 130], [90, 130]]) }, ...linkedTiles(4)]));
-    expect(detectLayout(doc).source).not.toContain('náhled skládání');
+    expect(detectLayout(doc).sources).not.toContain('source.overview');
   });
   it('does not accept a ragged group whose row does not start at the left edge', async () => {
     const doc = await readPdf(pdfBytes([{ content: rects([[20, 20], [74, 20], [74, 110]]) }, ...linkedTiles(4).slice(0, 3)]));
-    expect(detectLayout(doc).source).not.toContain('náhled skládání');
+    expect(detectLayout(doc).sources).not.toContain('source.overview');
   });
   it('maps overview groups to pages in reading order across bands', async () => {
     const grid = rects([[150, 15], [204, 15], [150, 105], [204, 105], [10, 20], [64, 20], [10, 190], [64, 190]]);
     const doc = await readPdf(pdfBytes([{ content: grid, width: 400 }, ...linkedTiles(8)]));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout.blocks).toEqual([{ pages: [2, 3], rows: [2] }, { pages: [4, 7], rows: [2, 2] }, { pages: [8, 9], rows: [2] }]);
-    expect(source).toContain('náhled skládání');
+    expect(sources).toContain('source.overview');
   });
   it('does not take a table-like grid with a different aspect for an overview', async () => {
     const table = [0, 1, 2, 3].flatMap(r => [0, 1].map(c => `${20 + c * 60} ${20 + r * 15} 60 15 re S`)).join(' ');
     const doc = await readPdf(pdfBytes([{ content: table }, ...Array.from({ length: 3 }, () => ({ content: '' }))]));
-    const { layout, source } = detectLayout(doc);
+    const { layout, sources } = detectLayout(doc);
     expect(layout.blocks).toEqual([1, 2, 3, 4].map(page => ({ pages: [page, page], rows: [1] })));
-    expect(source).not.toContain('náhled skládání');
+    expect(sources).not.toContain('source.overview');
   });
   it('keeps complete content evidence when an overview is present too', async () => {
     const cells = [[20, 20], [65, 20], [20, 90], [65, 90]].map(([x, y]) => `${x} ${y} 45 70 re S`).join(' ');
-    const { layout, source } = detectLayout(await readPdf(repeatedSheet(true, false, cells)));
+    const { layout, sources } = detectLayout(await readPdf(repeatedSheet(true, false, cells)));
     expect(layout.blocks).toEqual([{ pages: [1, 4], rows: [2, 2] }]);
-    expect(source).not.toContain('náhled skládání');
+    expect(sources).not.toContain('source.overview');
   });
 
   it('reports whether the layout is confident or the blocks must be entered', async () => {
@@ -247,8 +247,8 @@ describe('PDF layout and placement', () => {
     const cells = rects([[20, 20], [74, 20], [20, 110], [74, 110]]);
     expect(detectLayout(await readPdf(pdfBytes([{ content: cells }, ...linkedTiles(4)]))).confident).toBe(true);
     const unlinked = await readPdf(pdfBytes([{ content: cells }, ...Array.from({ length: 4 }, () => ({ content: '' }))]));
-    const { source, confident } = detectLayout(unlinked);
-    expect(source).toContain('bloky je třeba zadat');
+    const { sources, confident } = detectLayout(unlinked);
+    expect(sources).toContain('source.manual');
     expect(confident).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import { ClipperOffset, EndType, JoinType, Paths64 } from 'clipper2-js';
 import type { IPoint64 } from 'clipper2-js';
+import { AppError } from '../errors';
 
 interface OffsetGroup { outPath: IPoint64[]; outPaths: IPoint64[][] }
 interface OffsetAdapter {
@@ -8,7 +9,7 @@ interface OffsetAdapter {
 }
 
 export function inflatePaths(paths: Paths64, delta: number): Paths64 {
-  if (delta < 0) throw new Error('Přídavek na švy nesmí být záporný.');
+  if (delta < 0) throw new AppError('geom.seamNegative');
   const engine = new ClipperOffset(2);
   // clipper2-js 1.2.4 passes the previous index by value and never updates it
   // in offsetPolygon. Adapt this instance only; keep its joins and union cleanup.

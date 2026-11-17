@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { describe as render } from '../src/i18n';
 import { contentPages } from '../src/pdf/match';
 import { assemblePaths } from '../src/pdf/place';
 import { CM_PER_PT } from '../src/pdf/scale';
@@ -50,7 +51,8 @@ describe('cut labels', () => {
   it('keeps printed counts and asks for a check when the fallback material already has one (b)', () => {
     const parsed = parseCutLabels(['vystřihnout 1x VNĚJŠÍ', 'vystřihnout 2x'], 'vnější');
     expect(parsed.cut).toEqual([{ material: 'vnější', count: 1 }]);
-    expect(parsed.hint).toBe('Pokyn „vystřihnout 2x“ neuvádí materiál – zkontrolujte počty.');
+    expect(parsed.hint).toEqual({ code: 'hint.noMaterial', params: { instruction: 'vystřihnout 2x' } });
+    expect(render(parsed.hint!)).toBe('Pokyn „vystřihnout 2x“ neuvádí materiál – zkontrolujte počty.');
   });
   it('gives the fallback material the count when the piece has no printed material (c)', () => {
     expect(parseCutLabels(['vystřihnout 2x'], 'vnější')).toMatchObject({ cut: [{ material: 'vnější', count: 2 }] });
@@ -248,6 +250,6 @@ describe('piece suggestions', () => {
     const a = candidate({ uni: rect(0, 0, 30, 20) }, ['vystřihnout 1x VNĚJŠÍ', 'vystřihnout 2x'], 1);
     const [draft] = suggestPieces(result(a), { contentPaths: [], texts: [] });
     expect(draft.cut).toEqual([{ material: 'vnější', count: 1 }]);
-    expect(draft.hint).toContain('vystřihnout 2x');
+    expect(draft.hint).toEqual([{ code: 'hint.noMaterial', params: { instruction: 'vystřihnout 2x' } }]);
   });
 });

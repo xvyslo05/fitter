@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { describe as text } from '../src/i18n';
 import { demo } from '../src/model/demo';
 import { DEFAULT_GAP_CM, FABRIC_WIDTH_PRESETS_CM, changedSettings, checkInputs, checkSettings, resetSettings, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, shouldReplaceDemo, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
-import { asymmetricPiece } from './fixtures';
+import { asymmetricPiece, caught } from './fixtures';
 
 const fabric: Fabric = { width: 150, length: null, folded: false };
 const setup = () => ({ pattern: structuredClone(demo), line: makeOrder(demo, 'test-order'), settings: structuredClone(defaultSettings) });
@@ -57,16 +58,17 @@ describe('prepare', () => {
     const lines = [makeOrder(pattern, 'a'), makeOrder(pattern, 'b')];
     const output = prepare([pattern], lines, { 'Vnější látka': { ...fabric, folded: true } }, settings);
     expect(output.materials['Vnější látka']).toHaveLength(2);
-    expect(output.notes).toEqual([`${pattern.name} · Asymetrický díl (Vnější látka): vystřihne se 2 kusy navíc (zrcadlově).`]);
+    expect(output.notes).toEqual([{ code: 'prepare.surplus', params: { label: `${pattern.name} · Asymetrický díl (Vnější látka)`, n: 2 } }]);
+    expect(output.notes.map(text)).toEqual([`${pattern.name} · Asymetrický díl (Vnější látka): vystřihne se 2 kusy navíc (zrcadlově).`]);
   });
   it('reports invalid settings and fabrics before a run', () => {
     const { settings } = setup();
     expect(checkInputs(settings, {}, ['Vnější látka'])).toBeNull();
-    expect(checkInputs({ ...settings, gap: NaN }, {}, [])).toMatch(/Mezera/);
-    expect(checkInputs({ ...settings, timeMs: 61_000 }, {}, [])).toMatch(/Čas/);
-    expect(checkInputs({ ...settings, resolution: 0.1 }, {}, [])).toMatch(/Přesnost/);
-    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, width: NaN } }, ['Vnější látka'])).toMatch(/Vnější látka: šířka/);
-    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, length: 0 } }, ['Vnější látka'])).toMatch(/Vnější látka: délka/);
+    expect(checkInputs({ ...settings, gap: NaN }, {}, [])).toEqual({ code: 'settings.gapRange' });
+    expect(checkInputs({ ...settings, timeMs: 61_000 }, {}, [])).toEqual({ code: 'settings.timeRange' });
+    expect(checkInputs({ ...settings, resolution: 0.1 }, {}, [])).toEqual({ code: 'settings.resolutionRange' });
+    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, width: NaN } }, ['Vnější látka'])).toEqual({ code: 'fabric.widthRange', params: { material: 'Vnější látka' } });
+    expect(checkInputs(settings, { 'Vnější látka': { ...fabric, length: 0 } }, ['Vnější látka'])).toEqual({ code: 'fabric.lengthRange', params: { material: 'Vnější látka' } });
     expect(checkInputs(settings, { Unused: { ...fabric, width: NaN } }, ['Vnější látka'])).toBeNull();
   });
   it('only includes pieces available in the selected size', () => {
@@ -114,7 +116,7 @@ describe('prepare', () => {
     for (const piece of pieces) expect(piece.polygon).toEqual(pattern.pieces[0].sizes.uni.outline);
     expect(output.mirroredKeys).toEqual([]);
     expect(new Set(pieces.map(p => p.key)).size).toBe(placements);
-    expect(output.notes).toEqual(surplus ? [`${pattern.name} · Asymetrický díl (Vnější látka): vystřihne se ${surplus} navíc (zrcadlově).`] : []);
+    expect(output.notes.map(text)).toEqual(surplus ? [`${pattern.name} · Asymetrický díl (Vnější látka): vystřihne se ${surplus} navíc (zrcadlově).`] : []);
   });
   it('keeps fold halves, pairs ordinary placements per garment, and reports mirrored extras', () => {
     const { pattern, line, settings } = setup(); line.quantity = 3;
@@ -123,7 +125,7 @@ describe('prepare', () => {
     expect(pieces.filter(p => p.foldEdge)).toHaveLength(3);
     expect(pieces.filter(p => p.label.includes('Ucho'))).toHaveLength(3);
     expect(pieces.filter(p => p.label.includes('Kapsa'))).toHaveLength(3);
-    expect(output.notes).toEqual([`${pattern.name} · Kapsa malá (Vnější látka): vystřihne se 3 kusy navíc (zrcadlově).`]);
+    expect(output.notes.map(text)).toEqual([`${pattern.name} · Kapsa malá (Vnější látka): vystřihne se 3 kusy navíc (zrcadlově).`]);
     expect(output.mirroredKeys.filter(key => pieces.some(p => p.key === key))).toHaveLength(0);
     expect(bbox(pieces[0].polygon).minX).toBe(0);
     expect(bbox(pieces[0].polygon).width).toBeLessThan(25);
@@ -142,7 +144,7 @@ describe('prepare', () => {
     pattern.pieces[0].sizes.uni.fold = [[0, 0], [18, 0]];
     const output = prepare([pattern], [line], { 'Vnější látka': { ...fabric, folded: true } }, settings);
     expect(output.materials['Vnější látka'][0].foldEdge).toBe(false);
-    expect(output.notes.join(' ')).toContain('přehyb není svislý');
+    expect(output.notes.map(n => n.code)).toContain('prepare.foldNotVertical');
   });
   it('honors per-piece seam status, explicit pattern toggle and rotation override', () => {
     const { pattern, line, settings } = setup();
@@ -155,7 +157,7 @@ describe('prepare', () => {
     const handle = output.materials['Vnější látka'].find(p => p.label.includes('Ucho'))!;
     expect(bbox(handle.polygon).width).toBeCloseTo(9);
     expect(handle.rotation).toBe('none');
-    expect(output.notes).toEqual([`${pattern.name}: přídavek na švy není jednoznačný; ověřte ho podle střihu.`]);
+    expect(output.notes).toEqual([{ code: 'prepare.seamUnclear', params: { pattern: pattern.name } }]);
     settings.addSeam[pattern.id] = false;
     output = prepare([pattern], [line], {}, settings);
     expect(bbox(output.materials['Vnější látka'].find(p => p.label.includes('Ucho'))!.polygon).width).toBeCloseTo(7);
@@ -169,7 +171,7 @@ describe('prepare', () => {
     expect(output.materials['__proto__']).toHaveLength(2);
     expect(output.materials['__proto__'][0].rotation).toBe('180');
     expect(bbox(output.materials['__proto__'][0].polygon).width).toBeCloseTo(9);
-    expect(() => prepare([pattern], [line], {}, { ...settings, seamAmount: NaN })).toThrow(/Přídavek na švy/);
+    expect(() => prepare([pattern], [line], {}, { ...settings, seamAmount: NaN })).toThrow('settings.seamRange');
   });
   it('directional fabric forces rotation none for its material only, overriding defaults and overrides', () => {
     const { pattern, line, settings } = setup(); settings.rotation = '90';
@@ -206,10 +208,12 @@ describe('deleting a pattern', () => {
     expect(linesUsing([a, b, other], demo.id)).toBe(2);
   });
   it('asks differently when the pattern is in the plan', () => {
-    expect(deleteQuestion('Mikina', 0)).toBe('Smazat střih „Mikina“? Nejde to vrátit.');
-    expect(deleteQuestion('Mikina', 1)).toBe('Smazat střih „Mikina“? Zmizí i ze seznamu Co šiju (1 řádek). Nejde to vrátit.');
-    expect(deleteQuestion('Mikina', 2)).toContain('(2 řádky)');
-    expect(deleteQuestion('Mikina', 5)).toContain('(5 řádků)');
+    expect(deleteQuestion('Mikina', 0)).toEqual({ code: 'delete.plain', params: { name: 'Mikina' } });
+    expect(deleteQuestion('Mikina', 2)).toEqual({ code: 'delete.withLines', params: { name: 'Mikina', n: 2 } });
+    expect(text(deleteQuestion('Mikina', 0))).toBe('Smazat střih „Mikina“? Nejde to vrátit.');
+    expect(text(deleteQuestion('Mikina', 1))).toBe('Smazat střih „Mikina“? Zmizí i ze seznamu Co šiju (1 řádek). Nejde to vrátit.');
+    expect(text(deleteQuestion('Mikina', 2))).toContain('(2 řádky)');
+    expect(text(deleteQuestion('Mikina', 5))).toContain('(5 řádků)');
   });
 });
 
@@ -233,9 +237,12 @@ describe('pieceCounts', () => {
   it('lists what differs from the default settings, without the per-pattern seam switches', () => {
     expect(changedSettings(structuredClone(defaultSettings))).toEqual([]);
     expect(changedSettings({ ...defaultSettings, addSeam: { 'any-pattern': true } })).toEqual([]);
-    expect(changedSettings({ ...defaultSettings, gap: 0.3, timeMs: 20_000, seed: 7 })).toEqual(['mezera 0,3 cm', 'hledání 20 s', 'číslo pokusu 7']);
-    expect(changedSettings({ ...defaultSettings, seamAmount: 1.5, rotation: 'none', mirroredPairs: false, resolution: 1 }))
+    expect(changedSettings({ ...defaultSettings, gap: 0.3, timeMs: 20_000, seed: 7 }).map(n => n.code)).toEqual(['changed.gap', 'changed.time', 'changed.seed']);
+    expect(changedSettings({ ...defaultSettings, gap: 0.3, timeMs: 20_000, seed: 7 }).map(text)).toEqual(['mezera 0,3 cm', 'hledání 20 s', 'číslo pokusu 7']);
+    expect(changedSettings({ ...defaultSettings, seamAmount: 1.5, rotation: 'none', mirroredPairs: false, resolution: 1 }).map(text))
       .toEqual(['přídavek na švy 1,5 cm', 'díly se neotáčejí', 'páry nezrcadlově', 'hrubá přesnost']);
+    expect(changedSettings({ ...defaultSettings, seamAmount: NaN, rotation: '90', resolution: 0.75 }).map(text))
+      .toEqual(['přídavek na švy ? cm', 'díly i napříč', 'přesnost 0,75 cm']);
   });
   it('resets settings to the defaults but keeps the seam switches', () => {
     const reset = resetSettings({ ...defaultSettings, gap: 2, seed: 1, addSeam: { 'any-pattern': true } });
@@ -244,15 +251,15 @@ describe('pieceCounts', () => {
   });
   it('flags invalid settings that live in the collapsed block', () => {
     expect(checkSettings(defaultSettings)).toBeNull();
-    expect(checkSettings({ ...defaultSettings, gap: 11 })).toMatch(/Mezera/);
-    expect(checkSettings({ ...defaultSettings, seamAmount: NaN })).toMatch(/Přídavek/);
-    expect(checkInputs({ ...defaultSettings, seed: NaN }, {}, [])).toBe(checkSettings({ ...defaultSettings, seed: NaN }));
+    expect(checkSettings({ ...defaultSettings, gap: 11 })).toEqual({ code: 'settings.gapRange' });
+    expect(checkSettings({ ...defaultSettings, seamAmount: NaN })).toEqual({ code: 'settings.seamRange' });
+    expect(checkInputs({ ...defaultSettings, seed: NaN }, {}, [])).toEqual(checkSettings({ ...defaultSettings, seed: NaN }));
   });
   it('says what is wrong with the settings in the words of the screen', () => {
-    expect(checkSettings({ ...defaultSettings, resolution: 2 })).toBe('Přesnost musí být 0,25–1 cm.');
-    expect(checkSettings({ ...defaultSettings, seed: NaN })).toBe('Číslo pokusu musí být číslo.');
+    expect(text(checkSettings({ ...defaultSettings, resolution: 2 })!)).toBe('Přesnost musí být 0,25–1 cm.');
+    expect(text(checkSettings({ ...defaultSettings, seed: NaN })!)).toBe('Číslo pokusu musí být číslo.');
     const { pattern, line, settings } = setup(); line.quantity = 0;
-    expect(() => prepare([pattern], [line], {}, settings)).toThrow('Počet kusů: zadejte celé číslo 1–100.');
+    expect(text(caught(() => prepare([pattern], [line], {}, settings)))).toBe('Počet kusů: zadejte celé číslo 1–100.');
   });
   it('replaces the sample row only when it is the single untouched row', () => {
     const sample = makeOrder(demo);

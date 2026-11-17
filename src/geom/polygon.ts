@@ -1,6 +1,7 @@
 import { Clipper, FillRule, Path64, Paths64 } from 'clipper2-js';
 import { inflatePaths } from './offset';
 import type { Pt } from '../model/pattern';
+import { AppError } from '../errors';
 
 const SCALE = 1_000_000;
 export const EPS = 1e-8;
@@ -46,8 +47,8 @@ function paths(polygons: Pt[][]): Paths64 {
 const fromPaths = (p: Paths64): Pt[][] => Array.from(p, ring => Array.from(ring, ({ x, y }) => [x / SCALE || 0, y / SCALE || 0] as Pt));
 function outer(result: Paths64): Pt[] {
   const rings = fromPaths(result.map(ring => Clipper.trimCollinear(ring))).sort((a, b) => area(b) - area(a));
-  if (!rings.length) throw new Error('Geometrie dílu je po úpravě prázdná.');
-  if (rings.filter(p => signedArea(p) > 0).length > 1) throw new Error('Úprava vytvořila oddělené obrysy. Zkontrolujte hranu přehybu.');
+  if (!rings.length) throw new AppError('geom.empty');
+  if (rings.filter(p => signedArea(p) > 0).length > 1) throw new AppError('geom.splitOutline');
   // The file format describes one outer cutting ring, without holes.
   return rings[0];
 }
@@ -60,11 +61,11 @@ export function union(a: Pt[], b: Pt[]): Pt[] {
 }
 // Union of any number of rings as one simple ring; throws when the parts are not connected or enclose a hole.
 export function unionAll(polygons: Pt[][]): Pt[] {
-  if (!polygons.length) throw new Error('Není vybrána žádná část.');
+  if (!polygons.length) throw new AppError('geom.nothingSelected');
   const united = Clipper.Union(paths(polygons), undefined, FillRule.NonZero);
   const rings = fromPaths(united.map(ring => Clipper.trimCollinear(ring)));
-  if (rings.filter(r => signedArea(r) > 0).length > 1) throw new Error('Vybrané části na sebe nenavazují.');
-  if (rings.some(r => signedArea(r) < 0)) throw new Error('Vybrané části uzavírají otvor.');
+  if (rings.filter(r => signedArea(r) > 0).length > 1) throw new AppError('geom.partsDisconnected');
+  if (rings.some(r => signedArea(r) < 0)) throw new AppError('geom.partsHole');
   return outer(united);
 }
 export function intersectionArea(a: Pt[], b: Pt[]): number {
@@ -73,7 +74,7 @@ export function intersectionArea(a: Pt[], b: Pt[]): number {
 }
 export function mirrorAcross(p: Pt[], [a, b]: [Pt, Pt]): Pt[] {
   const dx = b[0] - a[0], dy = b[1] - a[1], length2 = dx * dx + dy * dy;
-  if (length2 < EPS) throw new Error('Hrana přehybu má nulovou délku.');
+  if (length2 < EPS) throw new AppError('geom.foldZero');
   return p.map(([x, y]) => {
     const t = ((x - a[0]) * dx + (y - a[1]) * dy) / length2;
     return [2 * (a[0] + t * dx) - x, 2 * (a[1] + t * dy) - y];
@@ -92,7 +93,7 @@ export function alignFoldOutline(p: Pt[], [a, b]: [Pt, Pt]): { polygon: Pt[]; ad
     ((x - a[0]) * dx + (y - a[1]) * dy) / length]);
   // Union removes coincident or backtracking segments introduced by snapping.
   const local = outer(Clipper.Union(paths([snapped]), undefined, FillRule.NonZero));
-  if (!isSimple(local) || area(local) < EPS) throw new Error('Obrys u přehybu nelze bezpečně srovnat. Zkontrolujte vstupní střih.');
+  if (!isSimple(local) || area(local) < EPS) throw new AppError('geom.foldAlign');
   const polygon: Pt[] = local.map(([x, y]) => [a[0] + (y * dx - x * dy) / length, a[1] + (y * dy + x * dx) / length]);
   return { polygon, adjusted: true };
 }

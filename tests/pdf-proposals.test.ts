@@ -69,7 +69,7 @@ describe('nested sizes in one style', () => {
     expect(result.candidates[0].sizesUnclear).toBe(true);
     expect(Object.keys(result.candidates[0].sizes).sort()).toEqual(['L', 'M', 'S']);
     const [draft] = suggestPieces(result, { contentPaths: paths, texts: [] });
-    expect(draft.hint).toContain('Velikosti se nepodařilo rozlišit');
+    expect(draft.hint).toEqual([{ code: 'hint.sizesUnclear' }]);
     expect(draft.variants).toEqual([]);
   });
   it('gives a one-level piece the same outline in every listed size', () => {
