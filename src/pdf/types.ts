@@ -22,7 +22,11 @@ export interface StyleEntry {
 }
 export interface ScaleResult { cmPerPt: number; source: 'square' | 'default'; squareCm?: number; measuredPt?: number; page?: number; squarePt?: [number, number, number, number] }
 export interface TraceOptions { resolutionMm: number; gapMm: number; minAreaCm2: number; cmPerPt: number }
-export interface PieceCandidate { id: number; refSize: string; sizes: Record<string, Pt[]>; labels: string[] }
+// An enclosed region of a piece (a closed ring of the piece's lines). ring is closed like an outline;
+// neighbours list the cells it shares a border with (sharedPt = border length); touchesOutside: borders the sheet outside the piece.
+export interface Cell { id: number; ring: Pt[]; areaPt2: number; neighbours: { id: number; sharedPt: number }[]; touchesOutside: boolean }
+// cells (per size, same pieces as sizes): the regions inside the outline; ids are unique within one outline's cells.
+export interface PieceCandidate { id: number; refSize: string; sizes: Record<string, Pt[]>; cells?: Record<string, Cell[]>; labels: string[] }
 export interface TraceResult { cmPerPt: number; sizes: string[]; candidates: PieceCandidate[] }
 export interface TraceRequest {
   paths: PdfPath[]; texts: PdfText[]; assignments: Record<string, string>; options: TraceOptions;

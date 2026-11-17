@@ -3,7 +3,7 @@ import { strokeMetrics } from './stroke';
 import { styleKeyOf } from './styles';
 import { groupPieces } from './group';
 import { withoutScaleMarks } from './scale';
-import type { PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceRequest, TraceResult } from './types';
+import type { Cell, PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceRequest, TraceResult } from './types';
 
 // Binary disk morphology. Horizontal runs keep work proportional to radius,
 // rather than the disk area, even for the largest permitted gap.
@@ -64,7 +64,11 @@ export function largestLoop(ring: Pt[]): Pt[] {
   return best;
 }
 
-export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
+// An outline with the enclosed regions inside it.
+export interface TracedShape { ring: Pt[]; cells: Cell[] }
+const MIN_CELL_CM2 = 0.3, NOTCH_CM2 = 1;
+
+export function traceShapes(paths: PdfPath[], opts: TraceOptions): TracedShape[] {
   const { resolutionMm, gapMm, minAreaCm2, cmPerPt } = opts;
   if (![resolutionMm, gapMm, minAreaCm2, cmPerPt].every(Number.isFinite) || resolutionMm < 0.25 || resolutionMm > 1 ||
     gapMm < 0 || gapMm > 6 || minAreaCm2 < 0 || cmPerPt <= 0) throw new Error('Neplatné nastavení obkreslení.');
@@ -167,27 +171,35 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
   const restored = morph(outside, w, h, radius, false);
   const solid = morph(interior, w, h, radius + Math.ceil(maxWidth / 2), true);
   for (let i = 0; i < solid.length; i++) solid[i] &= restored[i];
-  const visited = new Uint8Array(solid.length), outlines: Pt[][] = [];
-  const directions: Pt[] = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  const offsets = directions.map(([x, y]) => y * w + x);
-  for (let start = 0; start < solid.length; start++) {
-    if (!solid[start] || visited[start]) continue;
-    head = 0; tail = 1; queue[0] = start; visited[start] = 1;
+  // Cells: 4-connected enclosed regions, grown through the barrier (inside `solid`) to the line centres.
+  const labels = new Int32Array(solid.length);
+  let cellCount = 0;
+  for (let seed = 0; seed < interior.length; seed++) {
+    if (!interior[seed] || labels[seed]) continue;
+    labels[seed] = ++cellCount; head = 0; tail = 1; queue[0] = seed;
     while (head < tail) {
       const i = queue[head++];
-      for (const offset of offsets) {
-        const j = i + offset;
-        if (solid[j] && !visited[j]) { visited[j] = 1; queue[tail++] = j; }
-      }
+      for (const j of [i - 1, i + 1, i - w, i + w]) if (interior[j] && !labels[j]) { labels[j] = cellCount; queue[tail++] = j; }
     }
-    if (tail * (resolutionMm / 10) ** 2 < minAreaCm2) continue;
+  }
+  head = 0; tail = 0;
+  for (let i = 0; i < labels.length; i++) if (labels[i]) { if (solid[i]) queue[tail++] = i; else labels[i] = 0; }
+  while (head < tail) {
+    const i = queue[head++];
+    for (const j of [i - 1, i + 1, i - w, i + w]) if (solid[j] && !labels[j]) { labels[j] = labels[i]; queue[tail++] = j; }
+  }
+  const visited = new Uint8Array(solid.length), shapes: TracedShape[] = [];
+  const directions: Pt[] = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const offsets = directions.map(([x, y]) => y * w + x);
+  // Walks the outer border of the 8-connected component of `mask` that starts at its first pixel.
+  function ringOf(mask: Uint8Array, start: number, pixels: number): Pt[] | undefined {
     const ring: Pt[] = [];
     let current = start, back = 4, first = -1;
-    for (let steps = 0; steps < tail * 8; steps++) {
+    for (let steps = 0; steps < pixels * 8; steps++) {
       let next = -1, dir = 0;
       for (let n = 1; n <= 8; n++) {
         dir = (back + n) % 8;
-        if (solid[current + offsets[dir]]) { next = current + offsets[dir]; break; }
+        if (mask[current + offsets[dir]]) { next = current + offsets[dir]; break; }
       }
       if (next === -1 || (current === start && next === first)) break;
       if (first === -1) first = next;
@@ -198,17 +210,116 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
     }
     // A pinch still visited twice splits the ring; only its largest loop is kept.
     const loop = largestLoop(ring);
-    if (loop.length < 4) continue;
+    if (loop.length < 4) return undefined;
     // Simplifying can create a crossing: retry with a finer tolerance, then drop a ring that stays non-simple.
-    let reduced: Pt[] | undefined;
-    for (let tolerance = 0.03 / cmPerPt, attempt = 0; attempt < 4 && !reduced; attempt++, tolerance /= 2) {
+    for (let tolerance = 0.03 / cmPerPt, attempt = 0; attempt < 4; attempt++, tolerance /= 2) {
       const candidate = simplify([...loop, [...loop[0]]], tolerance);
-      if (isSimple(candidate.slice(0, -1))) reduced = candidate;
+      if (isSimple(candidate.slice(0, -1))) return candidate;
     }
-    if (reduced && reduced.length >= 4 && area(reduced) * cmPerPt ** 2 >= minAreaCm2) outlines.push(reduced);
+    return undefined;
   }
-  return outlines.sort((a, b) => area(b) - area(a));
+  const pixelCm2 = (resolutionMm / 10) ** 2, tinyPixels = MIN_CELL_CM2 / pixelCm2;
+  let scratch: Uint8Array | undefined;
+  for (let start = 0; start < solid.length; start++) {
+    if (!solid[start] || visited[start]) continue;
+    head = 0; tail = 1; queue[0] = start; visited[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      for (const offset of offsets) {
+        const j = i + offset;
+        if (solid[j] && !visited[j]) { visited[j] = 1; queue[tail++] = j; }
+      }
+    }
+    if (tail * pixelCm2 < minAreaCm2) continue;
+    let ring = ringOf(solid, start, tail);
+    // Pixels and edges (4-neighbour pairs) per cell label; `out` counts edges towards the outside.
+    const info = new Map<number, { px: number; out: number; adj: Map<number, number> }>();
+    for (let n = 0; n < tail; n++) {
+      const i = queue[n], label = labels[i];
+      if (!label) continue;
+      let cell = info.get(label);
+      if (!cell) info.set(label, cell = { px: 0, out: 0, adj: new Map() });
+      cell.px++;
+      for (const j of [i - 1, i + 1, i - w, i + w]) {
+        const other = solid[j] ? labels[j] : 0;
+        if (!other) cell.out++;
+        else if (other !== label) cell.adj.set(other, (cell.adj.get(other) ?? 0) + 1);
+      }
+    }
+    // A small cell on the outside that mostly borders the outside is a notch mark, not part of the piece: it is cut off.
+    const removed = new Set<number>();
+    if (info.size > 1) for (const [label, cell] of info) {
+      let shared = 0;
+      for (const count of cell.adj.values()) shared += count;
+      if (cell.px < NOTCH_CM2 / pixelCm2 && cell.out > 0 && shared < cell.out) removed.add(label);
+    }
+    if (removed.size === info.size) removed.clear();
+    for (const label of removed) {
+      for (const [other, count] of info.get(label)!.adj) if (!removed.has(other)) { const o = info.get(other)!; o.adj.delete(label); o.out += count; }
+      info.delete(label);
+    }
+    let pixels = tail;
+    if (removed.size) {
+      scratch ??= new Uint8Array(solid.length);
+      let first = solid.length;
+      pixels = 0;
+      for (let n = 0; n < tail; n++) if (!removed.has(labels[queue[n]])) { scratch[queue[n]] = 1; pixels++; first = Math.min(first, queue[n]); }
+      ring = ringOf(scratch, first, pixels);
+      for (let n = 0; n < tail; n++) scratch[queue[n]] = 0;
+    }
+    if (!ring || ring.length < 4 || area(ring) * cmPerPt ** 2 < minAreaCm2) continue;
+    // Cells under 0.3 cm2 (text, marks) join the neighbour they share the longest border with.
+    const merged = new Map<number, number>();
+    const root = (label: number): number => { let r = label; while (merged.has(r)) r = merged.get(r)!; return r; };
+    for (;;) {
+      let small: number | undefined;
+      for (const [label, cell] of info) if (cell.px < tinyPixels && cell.adj.size && (small === undefined || cell.px < info.get(small)!.px)) small = label;
+      if (small === undefined) break;
+      const a = info.get(small)!;
+      let target = 0, edges = 0;
+      for (const [label, count] of a.adj) if (count > edges) { target = label; edges = count; }
+      const b = info.get(target)!;
+      b.px += a.px; b.out += a.out; b.adj.delete(small);
+      for (const [label, count] of a.adj) {
+        if (label === target) continue;
+        b.adj.set(label, (b.adj.get(label) ?? 0) + count);
+        const c = info.get(label)!.adj;
+        c.delete(small); c.set(target, (c.get(target) ?? 0) + count);
+      }
+      info.delete(small); merged.set(small, target);
+    }
+    const pixelPt2 = 1 / px ** 2, cells: Cell[] = [];
+    if (info.size <= 1) cells.push({ id: 1, ring, areaPt2: pixels * pixelPt2, neighbours: [], touchesOutside: true });
+    else {
+      scratch ??= new Uint8Array(solid.length);
+      const members = new Map<number, number[]>();
+      for (let n = 0; n < tail; n++) {
+        const label = labels[queue[n]];
+        if (!label || removed.has(label)) continue;
+        const list = members.get(root(label)) ?? [];
+        list.push(queue[n]); members.set(root(label), list);
+      }
+      const rings = new Map<number, Pt[]>();
+      for (const [label, list] of members) {
+        let first = list[0];
+        for (const i of list) { scratch[i] = 1; if (i < first) first = i; }
+        const cellRing = ringOf(scratch, first, list.length);
+        for (const i of list) scratch[i] = 0;
+        if (cellRing) rings.set(label, cellRing);
+      }
+      const order = [...rings.keys()].sort((a, b) => info.get(b)!.px - info.get(a)!.px), ids = new Map(order.map((label, k) => [label, k + 1]));
+      for (const label of order) {
+        const cell = info.get(label)!;
+        cells.push({ id: ids.get(label)!, ring: rings.get(label)!, areaPt2: cell.px * pixelPt2, touchesOutside: cell.out > 0,
+          neighbours: [...cell.adj].filter(([other]) => ids.has(other)).map(([other, count]) => ({ id: ids.get(other)!, sharedPt: count / px })) });
+      }
+    }
+    shapes.push({ ring, cells });
+  }
+  return shapes.sort((a, b) => area(b.ring) - area(a.ring));
 }
+
+export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] { return traceShapes(paths, opts).map(shape => shape.ring); }
 
 // In a pattern with named sizes, `uni` means a line every size shares (hem, fold, one-size piece),
 // like `vše` / `*`; only without named sizes it is the single size `uni`.
@@ -278,8 +389,10 @@ export function traceSizes({ paths, texts, assignments, options, scale, excludeS
     }
   }
   const sizes = [...named, ...(named.length ? [] : ['uni'])].filter(size => selected.has(size));
-  const outlines = Object.fromEntries(sizes.map(size => [size, traceOutlines(selected.get(size)!, options)]));
-  return { cmPerPt: options.cmPerPt, sizes, candidates: groupPieces(outlines, texts) };
+  const shapes = Object.fromEntries(sizes.map(size => [size, traceShapes(selected.get(size)!, options)]));
+  const outlines = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.ring)]));
+  const cells = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.cells)]));
+  return { cmPerPt: options.cmPerPt, sizes, candidates: groupPieces(outlines, texts, cells) };
 }
 
 // Default size guess: the one style that encloses clearly more area than any other.

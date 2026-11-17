@@ -1,6 +1,6 @@
 import { area, pointSegmentDistance } from '../geom/polygon';
 import { containsPoint } from './group';
-import type { PdfPath, PdfText, PieceCandidate, Pt, TraceResult } from './types';
+import type { Cell, PdfPath, PdfText, PieceCandidate, Pt, TraceResult } from './types';
 
 export interface PieceDraft {
   candidateId: number; include: boolean; name: string;
@@ -257,6 +257,19 @@ export function detectGrain(candidate: PieceCandidate, cmPerPt: number, sheet: P
 const tableLike = (labels: string[]) => labels.length >= 3 &&
   labels.filter(l => l.split(/[\s,;/–-]+/).filter(Boolean).every(t => SIZE_TOKEN.test(t))).length > labels.length / 2;
 
+// A grid (size table, chart): four or more cells of about the same area (within 15 %) that cover most of the candidate.
+const GRID_SPREAD = 1.15, GRID_MIN_CELLS = 4, GRID_COVER = 0.8;
+function gridLike(cells: Cell[] | undefined): boolean {
+  if (!cells || cells.length < GRID_MIN_CELLS) return false;
+  const areas = cells.map(c => c.areaPt2).sort((a, b) => a - b), total = areas.reduce((sum, a) => sum + a, 0);
+  for (let i = 0; i < areas.length; i++) {
+    let j = i, sum = 0;
+    while (j < areas.length && areas[j] <= areas[i] * GRID_SPREAD) sum += areas[j++];
+    if (j - i >= GRID_MIN_CELLS && sum > GRID_COVER * total) return true;
+  }
+  return false;
+}
+
 export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraft[] {
   const k = result.cmPerPt, candidates = result.candidates, rings = candidates.map(c => openRing(c.sizes[c.refSize]));
   // Text on more than half of the pieces (e.g. the pattern title) never names a piece.
@@ -289,7 +302,7 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     const line = detectGrain(c, k, sheet), fold = foldEdge === null ? null : edges[foldEdge];
     const grainAngle = line ? axisAngle(line.a, line.b) : fold ? axisAngle(fold.a, fold.b) : 90;
     const same = Object.keys(c.sizes).length < result.sizes.length && Object.values(c.sizes).every(ring => sameOutline(openRing(ring), rings[i], SAME_OUTLINE_CM / k));
-    const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels);
+    const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels) && !gridLike(c.cells?.[c.refSize]);
     return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
       optional: false, variantGroup: '', variant: '', ...(parsed.hint ? { hint: parsed.hint } : {}), ...(same ? { allSizes: true } : {}) };
   });

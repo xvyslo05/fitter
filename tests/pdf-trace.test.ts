@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox, isSimple } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { assignedSizes, sizeRole, suggestAssignments, largestLoop, traceOutlines, traceSizes, withoutLettering } from '../src/pdf/trace';
+import { assignedSizes, sizeRole, suggestAssignments, largestLoop, traceOutlines, traceShapes, traceSizes, withoutLettering } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
+import { suggestPieces } from '../src/pdf/pieces';
 import { assembleTexts } from '../src/pdf/place';
 import { readPdf } from '../src/pdf/readPdf';
 import { CM_PER_PT } from '../src/pdf/scale';
 import { pdfBytes, squareRing, testPath } from './pdf-writer';
-import type { TraceOptions } from '../src/pdf/types';
+import type { Pt, TraceOptions } from '../src/pdf/types';
 
 const opts: TraceOptions = { cmPerPt: CM_PER_PT, resolutionMm: 0.5, gapMm: 1, minAreaCm2: 15 };
 const pt = (cm: number) => cm / CM_PER_PT;
@@ -185,6 +186,64 @@ describe('line bands and simple rings', () => {
     expect(performance.now() - start).toBeLessThan(2000);
     expect(withSolid).toHaveLength(1);
     expect(Math.abs(area(withSolid[0]) / area(alone) - 1)).toBeLessThan(0.001);
+  });
+  it('returns the regions between inner lines as cells with their neighbours', () => {
+    const [shape, ...others] = traceShapes([...rectangle, band(0, 7.5, 20, 7.5)], opts);
+    expect(others).toHaveLength(0);
+    const cm2 = (c: { areaPt2: number }) => c.areaPt2 * CM_PER_PT ** 2;
+    expect(shape.cells).toHaveLength(3);
+    expect(Math.abs(shape.cells.reduce((sum, c) => sum + cm2(c), 0) / (area(shape.ring) * CM_PER_PT ** 2) - 1)).toBeLessThan(0.005);
+    const middle = shape.cells.find(c => c.neighbours.length === 2)!;
+    expect(Math.abs(cm2(middle) / 150 - 1)).toBeLessThan(0.01);
+    expect(shape.cells.filter(c => c.neighbours.length === 1)).toHaveLength(2);
+    expect(shape.cells.every(c => c.touchesOutside && isSimple(c.ring.slice(0, -1)))).toBe(true);
+    for (const cell of shape.cells) for (const n of cell.neighbours) {
+      expect(shape.cells.find(c => c.id === n.id)!.neighbours.find(m => m.id === cell.id)).toBeDefined();
+      expect(n.sharedPt * CM_PER_PT).toBeGreaterThan(19);
+    }
+  });
+  it('returns one cell for a plain piece and a nested region as its own cell', () => {
+    expect(traceShapes(rectangle.slice(0, 4), opts)[0].cells).toMatchObject([{ id: 1, neighbours: [], touchesOutside: true }]);
+    const [shape] = traceShapes([...rectangle.slice(0, 4), band(0, 10, 10, 10), band(0, 20, 10, 20), band(10, 10, 10, 20)], opts);
+    expect(shape.cells).toHaveLength(2);
+    const inner = shape.cells.find(c => c.areaPt2 * CM_PER_PT ** 2 < 150)!;
+    expect(Math.abs(inner.areaPt2 * CM_PER_PT ** 2 / 100 - 1)).toBeLessThan(0.01);
+    expect(inner.neighbours).toHaveLength(1);
+  });
+  it('merges cells under 0.3 cm2 into their neighbour and carries cells into the candidates', () => {
+    const mark = [band(5, 5, 5.4, 5, 0.1), band(5, 5.4, 5.4, 5.4, 0.1), band(5, 5, 5, 5.4, 0.1), band(5.4, 5, 5.4, 5.4, 0.1)];
+    const result = traceSizes({ paths: [...rectangle, ...mark], texts: [], assignments: { [styleKeyOf(rectangle[0])]: 'uni' }, options: opts });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].cells!.uni).toHaveLength(2);
+    expect(groupPieces({ S: [squareRing(0, 0, 10)] }, []).every(c => c.cells === undefined)).toBe(true);
+  });
+  it('cuts a closed notch mark off the outline and ignores a dot touching it from inside', () => {
+    const plain = traceOutlines(rectangle.slice(0, 4), opts)[0], cm2 = (ring: Pt[]) => area(ring) * CM_PER_PT ** 2;
+    const stroke = (points: [number, number][]) => testPath(points.map(([x, y]) => [pt(x), pt(y)] as [number, number]), { lineWidth: pt(0.1), closed: [true] });
+    const notch = stroke([[9.85, 0], [10.15, 0], [10, -0.3]]), dot = testPath(squareRing(pt(0), pt(5), pt(0.3)), ink);
+    // A 1 cm notch encloses a cell of its own (0.38 cm2 of bump without the cut); the 3 mm one only guards the bound.
+    const wide = stroke([[9.5, 0], [10.5, 0], [10, -0.8]]), cut = traceShapes([...rectangle.slice(0, 4), wide], opts);
+    expect(cut).toHaveLength(1);
+    expect(Math.abs(cm2(cut[0].ring) - cm2(plain))).toBeLessThan(0.1);
+    expect(cut[0].cells).toHaveLength(1);
+    const notched = traceShapes([...rectangle.slice(0, 4), notch], opts), dotted = traceShapes([...rectangle.slice(0, 4), dot], opts);
+    expect(notched).toHaveLength(1);
+    expect(Math.abs(cm2(notched[0].ring) - cm2(plain))).toBeLessThan(0.1);
+    expect(notched[0].cells).toHaveLength(1);
+    expect(dotted).toHaveLength(1);
+    expect(Math.abs(cm2(dotted[0].ring) - cm2(plain))).toBeLessThan(0.1);
+  });
+  it('offers a grid of equal boxes as excluded, but a piece in three strips as included', () => {
+    const lines = (...xs: number[][]) => xs.map(([a, b, c, d]) => band(a, b, c, d));
+    const frame = (w: number, h: number) => lines([0, 0, w, 0], [0, h, w, h], [0, 0, 0, h], [w, 0, w, h]);
+    const grid = [...frame(6, 12), ...lines([2, 0, 2, 12], [4, 0, 4, 12], [0, 3, 6, 3], [0, 6, 6, 6], [0, 9, 6, 9])];
+    const strips = [...frame(20, 30), ...lines([0, 25, 20, 25], [0, 28, 20, 28])];
+    for (const [paths, cells, include] of [[grid, 12, false], [strips, 3, true]] as const) {
+      const result = traceSizes({ paths, texts: [], assignments: { [styleKeyOf(paths[0])]: 'uni' }, options: { ...opts, minAreaCm2: 15 } });
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0].cells!.uni).toHaveLength(cells);
+      expect(suggestPieces(result, { contentPaths: [], texts: [] })[0].include).toBe(include);
+    }
   });
   it('keeps the largest loop of a figure eight', () => {
     const s: [number, number] = [10, 0];

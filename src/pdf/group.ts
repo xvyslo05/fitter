@@ -1,5 +1,5 @@
 import { area, bbox, intersectionArea } from '../geom/polygon';
-import type { PdfText, PieceCandidate, Pt } from './types';
+import type { Cell, PdfText, PieceCandidate, Pt } from './types';
 
 export function containsPoint(ring: Pt[], x: number, y: number): boolean {
   let inside = false;
@@ -9,16 +9,17 @@ export function containsPoint(ring: Pt[], x: number, y: number): boolean {
   }
   return inside;
 }
-export function groupPieces(outlines: Record<string, Pt[][]>, texts: PdfText[]): PieceCandidate[] {
+// cells[size][i] belongs to outlines[size][i]; when given, candidates carry them.
+export function groupPieces(outlines: Record<string, Pt[][]>, texts: PdfText[], cells?: Record<string, Cell[][]>): PieceCandidate[] {
   const sizes = Object.keys(outlines).sort((a, b) => outlines[b].reduce((s, p) => s + area(p), 0) - outlines[a].reduce((s, p) => s + area(p), 0));
   const candidates: PieceCandidate[] = [];
-  const add = (size: string, ring: Pt[]) => candidates.push({ id: candidates.length + 1, refSize: size, sizes: { [size]: ring },
-    labels: [...new Set(texts.filter(t => containsPoint(ring, t.x, t.y)).map(t => t.str))] });
+  const add = (size: string, ring: Pt[], cellsOf?: Cell[]) => candidates.push({ id: candidates.length + 1, refSize: size, sizes: { [size]: ring },
+    ...(cellsOf && { cells: { [size]: cellsOf } }), labels: [...new Set(texts.filter(t => containsPoint(ring, t.x, t.y)).map(t => t.str))] });
   if (!sizes.length) return candidates;
-  for (const ring of outlines[sizes[0]]) add(sizes[0], ring);
+  outlines[sizes[0]].forEach((ring, i) => add(sizes[0], ring, cells?.[sizes[0]][i]));
   const references = [...candidates];
   for (const size of sizes.slice(1)) {
-    const matches = outlines[size].map(ring => {
+    const matches = outlines[size].map((ring, index) => {
       let best: PieceCandidate | undefined, shared = 0;
       const a = bbox(ring), ringArea = area(ring);
       for (const candidate of references) {
@@ -27,13 +28,17 @@ export function groupPieces(outlines: Record<string, Pt[][]>, texts: PdfText[]):
         const common = intersectionArea(ring, ref);
         if (common / Math.min(ringArea, area(ref)) >= 0.5 && common > shared) { best = candidate; shared = common; }
       }
-      return { ring, best, shared };
+      return { ring, index, best, shared };
     // Shared area, not the overlap ratio, decides: a small mark inside a piece overlaps it
     // completely too, but must neither claim the piece nor attract the piece's own outline.
     }).sort((a, b) => b.shared - a.shared);
-    for (const { ring, best } of matches) {
-      if (best && !Object.hasOwn(best.sizes, size)) Object.defineProperty(best.sizes, size, { value: ring, enumerable: true, writable: true, configurable: true });
-      else add(size, ring);
+    for (const { ring, index, best } of matches) {
+      const cellsOf = cells?.[size][index];
+      if (best && !Object.hasOwn(best.sizes, size)) {
+        Object.defineProperty(best.sizes, size, { value: ring, enumerable: true, writable: true, configurable: true });
+        if (cellsOf) Object.defineProperty(best.cells ??= {}, size, { value: cellsOf, enumerable: true, writable: true, configurable: true });
+      }
+      else add(size, ring, cellsOf);
     }
   }
   return candidates;

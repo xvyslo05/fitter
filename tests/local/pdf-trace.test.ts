@@ -6,6 +6,7 @@ import { detectLayout } from '../../src/pdf/layout';
 import { assemblePaths, assembleTexts, placePages } from '../../src/pdf/place';
 import { detectScale } from '../../src/pdf/scale';
 import { styleKeyOf, styleLegend } from '../../src/pdf/styles';
+import { suggestPieces } from '../../src/pdf/pieces';
 import { suggestAssignments, traceSizes } from '../../src/pdf/trace';
 import { contentPages } from '../../src/pdf/match';
 import { area, isSimple } from '../../src/geom/polygon';
@@ -103,6 +104,35 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
       process.stdout.write(`${id} ${size}: traced=${traced.length}; distinct=${expected.length}; matched=${matched}; ${elapsed.toFixed(0)} ms${reportOnly ? '; report-only' : ''}; areas=${measured.map(m => m.area.toFixed(1)).join(',')}; dimensions=${measured.map(m => m.dims.map(n => n.toFixed(2)).join('x')).join(',')} cm\n`);
       if (reportOnly) {
         expect(matched).toBeGreaterThanOrEqual(3);
+        // Junk candidates (size tables, marks) are offered off: at most one included candidate under 100 cm2.
+        const drafts = suggestPieces(result, { contentPaths: paths, texts });
+        const small = result.candidates.filter(c => c.sizes[size] && area(c.sizes[size]) * scale.cmPerPt ** 2 < 100 && drafts.find(d => d.candidateId === c.id)!.include);
+        process.stdout.write(`${size} candidates=${result.candidates.length}; included under 100 cm2=${small.length}\n`);
+        expect(small.length).toBeLessThanOrEqual(1);
+        if (size === 'XXL') {
+          // Cells of at least 3 cm2 per candidate, and library variants as unions of cells.
+          const cellSets = result.candidates.flatMap(c => c.cells?.[size] ? [c.cells[size].map(cell => cell.areaPt2 * scale.cmPerPt ** 2).filter(a => a >= 3)] : []);
+          for (const c of result.candidates) if (c.cells?.[size]) process.stdout.write(`${size} candidate ${c.id}: outline=${(area(c.sizes[size]) * scale.cmPerPt ** 2).toFixed(1)}; cells=${c.cells[size].map(cell => `${cell.id}:${(cell.areaPt2 * scale.cmPerPt ** 2).toFixed(1)}${cell.touchesOutside ? 'o' : ''}[${cell.neighbours.map(n => n.id).join('/')}]`).join(' ')}\n`);
+          // Body cell counts are only reported: its variants are matched by area alone.
+          const cellCount = (id: string) => {
+            const reference = area(library.pieces.find(p => p.id === id)!.sizes[size].outline);
+            return result.candidates.filter(c => c.cells?.[size] && Math.abs(area(c.sizes[size]) * scale.cmPerPt ** 2 / reference - 1) <= 0.01)
+              .map(c => c.cells![size].filter(cell => cell.areaPt2 * scale.cmPerPt ** 2 >= 3).length);
+          };
+          expect(cellCount('aermel-lang-saum-190')).toEqual([6]);
+          expect(cellCount('tasche-gross')).toEqual([3]);
+          process.stdout.write(`${size} cells>=3cm2: sleeve=${cellCount('aermel-lang-saum-190')}; pocket=${cellCount('tasche-gross')}; body=${cellCount('rueckenteil-190')}\n`);
+          const variants = library.pieces.filter(p => p.id.startsWith('aermel-') || p.id.startsWith('tasche-')).map(p => ({ id: p.id, ref: area(p.sizes[size].outline) }));
+          for (const variant of variants) {
+            let best = Infinity;
+            for (const set of cellSets) for (let mask = 1; mask < 2 ** set.length; mask++) {
+              const sum = set.reduce((total, a, i) => total + (mask >> i & 1 ? a : 0), 0);
+              best = Math.min(best, Math.abs(sum / variant.ref - 1));
+            }
+            process.stdout.write(`${size} ${variant.id}: library=${variant.ref.toFixed(1)}; best cell union deviation=${(best * 100).toFixed(2)}%\n`);
+            expect(best).toBeLessThanOrEqual(0.015);
+          }
+        }
         expect(traced.every(ring => isSimple(ring.slice(0, -1)))).toBe(true);
         for (const id of raglanPieces) {
           const reference = area(library.pieces.find(p => p.id === id)!.sizes[size].outline);
