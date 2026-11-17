@@ -1,4 +1,4 @@
-import { area, pointSegmentDistance } from '../geom/polygon';
+import { area, isSimple, pointSegmentDistance } from '../geom/polygon';
 import { strokeMetrics } from './stroke';
 import { styleKeyOf } from './styles';
 import { groupPieces } from './group';
@@ -46,6 +46,24 @@ function simplify(points: Pt[], tolerance: number): Pt[] {
   return points.filter((_, i) => keep[i]);
 }
 
+// Splits a ring (no closing point) at every vertex it visits twice and keeps the loop of the largest area.
+export function largestLoop(ring: Pt[]): Pt[] {
+  const stack: Pt[] = [], at = new Map<string, number>();
+  let best: Pt[] = [];
+  const consider = (loop: Pt[]) => { if (loop.length >= 3 && (!best.length || area(loop) > area(best))) best = loop; };
+  for (const point of ring) {
+    const key = `${point[0]},${point[1]}`, k = at.get(key);
+    if (k !== undefined) {
+      const loop = stack.splice(k);
+      for (const p of loop) at.delete(`${p[0]},${p[1]}`);
+      consider(loop);
+    }
+    at.set(key, stack.length); stack.push(point);
+  }
+  consider(stack);
+  return best;
+}
+
 export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
   const { resolutionMm, gapMm, minAreaCm2, cmPerPt } = opts;
   if (![resolutionMm, gapMm, minAreaCm2, cmPerPt].every(Number.isFinite) || resolutionMm < 0.25 || resolutionMm > 1 ||
@@ -58,6 +76,18 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Cesta obsahuje neplatné souřadnice.');
     minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
     if (path.stroke && i) maxWidth = Math.max(maxWidth, strokeMetrics(path, points[i - 1], points[i]).lineWidth * px);
+  }
+  // Lines drawn as filled bands have no stroke width: estimate each band as 2 x area / perimeter. Long
+  // thin subpaths count; short ones (dashes, glyphs) and wide solids (over 3 mm) are not line bands.
+  for (const path of paths) if (path.fill) for (const points of path.subpaths) {
+    let twiceArea = 0, perimeter = 0;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      twiceArea += a[0] * b[1] - b[0] * a[1]; perimeter += Math.hypot(b[0] - a[0], b[1] - a[1]);
+    }
+    const width = Math.abs(twiceArea) * px / (perimeter || 1);
+    // The 1-px rim drawn round every filled ring widens the band by one pixel; 40 px of perimeter is a band longer than 20 px.
+    if (perimeter * px > 40 && width <= 3 / resolutionMm) maxWidth = Math.max(maxWidth, width + 1);
   }
   if (!Number.isFinite(minX)) return [];
   const padding = radius + Math.ceil(maxWidth) + 4;
@@ -166,10 +196,16 @@ export function traceOutlines(paths: PdfPath[], opts: TraceOptions): Pt[][] {
       back = directions.findIndex(([x, y]) => x === previous[0] - movement[0] && y === previous[1] - movement[1]);
       current = next;
     }
-    if (ring.length < 4) continue;
-    ring.push([...ring[0]]);
-    const reduced = simplify(ring, 0.03 / cmPerPt);
-    if (reduced.length >= 4 && area(reduced) * cmPerPt ** 2 >= minAreaCm2) outlines.push(reduced);
+    // A pinch still visited twice splits the ring; only its largest loop is kept.
+    const loop = largestLoop(ring);
+    if (loop.length < 4) continue;
+    // Simplifying can create a crossing: retry with a finer tolerance, then drop a ring that stays non-simple.
+    let reduced: Pt[] | undefined;
+    for (let tolerance = 0.03 / cmPerPt, attempt = 0; attempt < 4 && !reduced; attempt++, tolerance /= 2) {
+      const candidate = simplify([...loop, [...loop[0]]], tolerance);
+      if (isSimple(candidate.slice(0, -1))) reduced = candidate;
+    }
+    if (reduced && reduced.length >= 4 && area(reduced) * cmPerPt ** 2 >= minAreaCm2) outlines.push(reduced);
   }
   return outlines.sort((a, b) => area(b) - area(a));
 }

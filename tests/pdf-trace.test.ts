@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { area, bbox } from '../src/geom/polygon';
+import { area, bbox, isSimple } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { assignedSizes, sizeRole, suggestAssignments, traceOutlines, traceSizes, withoutLettering } from '../src/pdf/trace';
+import { assignedSizes, sizeRole, suggestAssignments, largestLoop, traceOutlines, traceSizes, withoutLettering } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
 import { assembleTexts } from '../src/pdf/place';
 import { readPdf } from '../src/pdf/readPdf';
@@ -154,6 +154,68 @@ describe('tracing', () => {
       scale: { source: 'square' as const, measuredPt: pt(5), squareCm: 5, cmPerPt: CM_PER_PT } };
     expect(traceSizes(request).candidates).toHaveLength(0);
     expect(traceSizes({ ...request, excludeScaleMarks: false }).candidates).toHaveLength(1);
+  });
+});
+describe('line bands and simple rings', () => {
+  const ink = { stroke: null, fill: [0, 0, 0] as [number, number, number] };
+  // A band 1 mm wide centred on the segment, in cm.
+  const band = (x0: number, y0: number, x1: number, y1: number, t = 0.1) => {
+    const h = t / 2, horizontal = y0 === y1;
+    return testPath((horizontal ? [[x0 - h, y0 - h], [x1 + h, y0 - h], [x1 + h, y0 + h], [x0 - h, y0 + h]] : [[x0 - h, y0 - h], [x1 + h, y0 - h], [x1 + h, y1 + h], [x0 - h, y1 + h]]).map(([x, y]) => [pt(x), pt(y)] as [number, number]), ink);
+  };
+  const rectangle = [band(0, 0, 20, 0), band(0, 30, 20, 30), band(0, 0, 0, 30), band(20, 0, 20, 30), band(0, 15, 20, 15)];
+  it('regrows past inner cutting lines drawn as filled bands', () => {
+    const traced = traceOutlines(rectangle, opts);
+    expect(traced).toHaveLength(1);
+    expect(isSimple(traced[0].slice(0, -1))).toBe(true);
+    expect(Math.abs(area(traced[0]) * CM_PER_PT ** 2 / 600 - 1)).toBeLessThan(0.005);
+  });
+  it('regrows past inner cutting lines drawn as strokes', () => {
+    const lines = [[[0, 0], [20, 0]], [[0, 30], [20, 30]], [[0, 0], [0, 30]], [[20, 0], [20, 30]], [[0, 15], [20, 15]]]
+      .map(([a, b]) => testPath([[pt(a[0]), pt(a[1])], [pt(b[0]), pt(b[1])]], { lineWidth: pt(0.1) }));
+    const traced = traceOutlines(lines, opts);
+    expect(traced).toHaveLength(1);
+    expect(isSimple(traced[0].slice(0, -1))).toBe(true);
+    expect(Math.abs(area(traced[0]) * CM_PER_PT ** 2 / 600 - 1)).toBeLessThan(0.005);
+  });
+  it('does not take a large solid fill for a line band', () => {
+    const square = testPath(squareRing(0, 0, pt(10)), { closed: [true] });
+    const solid = testPath(squareRing(pt(20), 0, pt(8)), ink);
+    const alone = traceOutlines([square], opts)[0], start = performance.now(), withSolid = traceOutlines([square, solid], opts);
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(withSolid).toHaveLength(1);
+    expect(Math.abs(area(withSolid[0]) / area(alone) - 1)).toBeLessThan(0.001);
+  });
+  it('keeps the largest loop of a figure eight', () => {
+    const s: [number, number] = [10, 0];
+    const eight: [number, number][] = [s, [10, 10], [0, 10], [0, 0], s, [16, 0], [16, -5], [10, -5]];
+    const loop = largestLoop(eight);
+    expect(Math.abs(area(loop))).toBeCloseTo(100, 6);
+    expect(isSimple(loop)).toBe(true);
+    expect(largestLoop(squareRing(0, 0, 4).slice(0, -1))).toHaveLength(4);
+  });
+  it('returns only simple rings for two pieces joined by a thin bridge', () => {
+    for (const neck of [0.5, 1, 1.5]) {
+      const n = neck / 2, outline = [[0, 0], [10, 0], [10, 5 - n], [12, 5 - n], [12, 0], [22, 0], [22, 10], [12, 10], [12, 5 + n], [10, 5 + n], [10, 10], [0, 10]]
+        .map(([x, y]) => [pt(x), pt(y)] as [number, number]);
+      for (const resolutionMm of [0.25, 0.5]) {
+        const traced = traceOutlines([testPath(outline, { closed: [true], lineWidth: 0 })], { ...opts, gapMm: 0, resolutionMm });
+        expect(traced.length).toBeGreaterThan(0);
+        for (const ring of traced) expect(isSimple(ring.slice(0, -1))).toBe(true);
+      }
+    }
+  });
+  it('returns only simple rings for 50 seeded random blobs', () => {
+    let seed = 12345;
+    const random = (lo: number, hi: number) => lo + (hi - lo) * ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+    for (let blob = 0; blob < 50; blob++) {
+      const paths = Array.from({ length: 3 + blob % 3 }, () => {
+        const x = random(0, 15), y = random(0, 15), width = random(4, 12), height = random(4, 12);
+        const corners = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]].map(([a, b]) => [pt(a), pt(b)] as [number, number]);
+        return testPath(corners, { closed: [true], lineWidth: pt(random(0.03, 0.15)) });
+      });
+      for (const ring of traceOutlines(paths, { ...opts, minAreaCm2: 1, gapMm: 1 + blob % 3 })) expect(isSimple(ring.slice(0, -1))).toBe(true);
+    }
   });
 });
 describe('size suggestion', () => {

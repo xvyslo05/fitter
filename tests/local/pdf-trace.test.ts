@@ -8,13 +8,15 @@ import { detectScale } from '../../src/pdf/scale';
 import { styleKeyOf, styleLegend } from '../../src/pdf/styles';
 import { suggestAssignments, traceSizes } from '../../src/pdf/trace';
 import { contentPages } from '../../src/pdf/match';
-import { area } from '../../src/geom/polygon';
+import { area, isSimple } from '../../src/geom/polygon';
 import type { Pt, StyleEntry } from '../../src/pdf/types';
 
 const directory = resolve('tools/pattern-extract/configs');
 const present = ['patterns', 'library', directory].every(p => existsSync(resolve(p)));
 interface Filter { width?: [number, number]; color?: number[]; dashes?: string }
-interface Library { pieces: { sizes: Record<string, { outline: Pt[] }> }[] }
+interface Library { pieces: { id: string; sizes: Record<string, { outline: Pt[] }> }[] }
+// Raglan pieces that must trace within 1 % of the library area: sleeve, hood, large pocket, body.
+const raglanPieces = ['aermel-lang-saum-190', 'kapuze', 'tasche-gross', 'rueckenteil-190'];
 // Convex hull + edge orientations: dimensions of the minimum-area rectangle,
 // independent of the grain rotation in the saved library.
 function dimensions(points: Pt[]): number[] {
@@ -67,10 +69,17 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
     const sharedKeys = reportOnly ? legend.filter(e => matchesStyle(e, { color: [0, 0, 0] }, true)).map(e => e.key) : [];
     const rasterOptions = { cmPerPt: scale.cmPerPt, gapMm: 1, resolutionMm: 0.5, minAreaCm2: 15 };
     const raglanStart = performance.now();
-    const raglanResult = reportOnly ? traceSizes({ paths, texts, scale, options: rasterOptions, assignments: {
+    const raglanRequest = { paths, texts, scale, options: rasterOptions, assignments: {
       ...Object.fromEntries(sharedKeys.map(key => [key, 'uni'])),
-      ...Object.fromEntries(Object.entries(filters).flatMap(([size, filter]) => legend.filter(e => matchesStyle(e, filter, true)).map(e => [e.key, size]))) } }) : null;
+      ...Object.fromEntries(Object.entries(filters).flatMap(([size, filter]) => legend.filter(e => matchesStyle(e, filter, true)).map(e => [e.key, size]))) } };
+    const raglanResult = reportOnly ? traceSizes(raglanRequest) : null;
     const raglanElapsed = performance.now() - raglanStart;
+    if (reportOnly) for (const gapMm of [1, 2, 4, 6]) {
+      const rings = traceSizes({ ...raglanRequest, options: { ...rasterOptions, gapMm } }).candidates.flatMap(c => Object.values(c.sizes));
+      const notSimple = rings.filter(ring => !isSimple(ring.slice(0, -1))).length;
+      process.stdout.write(`${id} gap ${gapMm} mm: rings=${rings.length}; notSimple=${notSimple}\n`);
+      expect(notSimple).toBe(0);
+    }
     for (const [size, filter] of Object.entries(filters)) {
       const keys = new Set(legend.filter(e => matchesStyle(e, filter, reportOnly)).map(e => e.key));
       const selected = paths.filter(p => keys.has(styleKeyOf(p)));
@@ -92,7 +101,16 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
         if (index !== -1) { matched++; used.add(index); }
       }
       process.stdout.write(`${id} ${size}: traced=${traced.length}; distinct=${expected.length}; matched=${matched}; ${elapsed.toFixed(0)} ms${reportOnly ? '; report-only' : ''}; areas=${measured.map(m => m.area.toFixed(1)).join(',')}; dimensions=${measured.map(m => m.dims.map(n => n.toFixed(2)).join('x')).join(',')} cm\n`);
-      if (reportOnly) expect(matched).toBeGreaterThanOrEqual(3);
+      if (reportOnly) {
+        expect(matched).toBeGreaterThanOrEqual(3);
+        expect(traced.every(ring => isSimple(ring.slice(0, -1)))).toBe(true);
+        for (const id of raglanPieces) {
+          const reference = area(library.pieces.find(p => p.id === id)!.sizes[size].outline);
+          const closest = measured.reduce((best, m) => Math.abs(m.area / reference - 1) < Math.abs(best / reference - 1) ? m.area : best, Infinity);
+          process.stdout.write(`${size} ${id}: traced=${closest.toFixed(1)}; library=${reference.toFixed(1)}; deviation=${((closest / reference - 1) * 100).toFixed(2)}%\n`);
+          expect(Math.abs(closest / reference - 1)).toBeLessThanOrEqual(0.01);
+        }
+      }
       else {
         expect(traced.length).toBe(expected.length);
         expect(matched).toBe(expected.length);
