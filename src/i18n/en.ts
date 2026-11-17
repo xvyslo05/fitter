@@ -634,4 +634,22 @@ export const en: Record<Exclude<keyof typeof cs, `${string}.few`>, string> = {
   'error.source.overview': 'assembly diagram',
   'error.source.manual': 'blocks must be entered by hand',
   'error.unknown': 'Unknown error.',
+
+  // Grain tolerance (ticket 21)
+  'error.settings.grainRange': 'The piece tilt must be between 0 and 5°.',
+  'error.changed.grain': 'pieces tilted up to {value:n2}°',
+  'refine.grain': 'Allow a slight tilt of pieces (up to {deg}°)',
+  'refine.grainNote': 'Pieces may turn a few degrees off the grainline so they fit together better and save a little fabric. Do not switch it on for stripes, checks or fabrics with a one-way print or nap: for a material marked “Fabric has a nap or a one-way print” pieces are never tilted. Check that the tilt suits your fabric before cutting.',
+  'layout.tilted': ', tilted {tilt}° off the grainline',
+  'layout.legendTilted': 'Tilted off the grainline (up to {tilt}°)',
+  'layout.tiltedShort': 'tilted {tilt}°',
+  // Manual adjustment of a finished layout (ticket 26)
+  'layout.adjustedBadge': 'Adjusted by hand',
+  'layout.restore': 'Restore computed layout',
+  'layout.dragHint': 'Drag a piece (on a touch screen, tap it first). Arrow keys move it {step:l1}, with Shift {fine:l1}.',
+  'layout.pieceMovable': '{label}, move with the arrow keys',
+  'layout.moveOutside': 'The piece would stick out past the edge of the fabric or the fold.',
+  'layout.moveFold': 'A piece on the fold can only slide along the fold.',
+  'layout.moveTooClose': 'Too close to: {names}. Pieces need a gap of {gap:l1}.',
+  'run.confirmDiscard': 'A new calculation will replace your manual changes to the layout. Continue?',
 };

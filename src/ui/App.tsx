@@ -37,7 +37,7 @@ function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<stri
 }
 const demoIdTaken = () => t('app.demoIdTaken');
 const MOBILE_QUERY = '(max-width:560px)';
-interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: Note[] }
+interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: Note[]; gap: number }
 export function App() {
   // Re-renders the whole app when the language or the unit changes: every child reads the current text and unit while it renders.
   const { locale, unit, setLocale, setUnit } = useLocale();
@@ -47,7 +47,10 @@ export function App() {
   const [patterns, setPatterns] = useState<PatternFile[]>(() => [demoPattern(getLocale())]);
   const [loading, setLoading] = useState(true), [messages, setMessages] = useState<string[]>([]);
   const [storageWarning, setStorageWarning] = useState(false), [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
+  const [computed, setResults] = useState<Record<string, NestResult>>(() => Object.create(null));
+  // Plans moved by hand (per material). They sit over the computed result, which "Vrátit výpočet" brings back.
+  const [manual, setManual] = useState<Record<string, NestResult>>(() => Object.create(null));
+  const results = useMemo(() => Object.assign(Object.create(null), computed, manual) as Record<string, NestResult>, [computed, manual]);
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null), [status, setStatus] = useState('');
   const [elapsed, setElapsed] = useState(0), [pdfImport, setPdfImport] = useState(false);
   const [runError, setRunError] = useState('');
@@ -168,13 +171,14 @@ export function App() {
   function run() {
     if (inputError) return;
     if (!materials.length) { setRunError(t('run.noPieces')); return; }
+    if (Object.keys(manual).length && !window.confirm(t('run.confirmDiscard'))) return;
     if (order.some(line => !patterns.some(p => p.id === line.patternId))) {
       setRunError(t('run.patternGone')); return;
     }
     const jobs = materials.map(material => ({ material, pieces: prepared.data.materials[material], fabric: own(fabrics, material) ?? defaultFabric() }));
     worker.current?.terminate();
-    setSnapshot({ signature, jobs, mirroredKeys: prepared.data.mirroredKeys, notes: prepared.data.notes });
-    setResults(Object.create(null)); setMessages([]); setRunError(''); setBusy(true); setStatus(t('run.preparing'));
+    setSnapshot({ signature, jobs, mirroredKeys: prepared.data.mirroredKeys, notes: prepared.data.notes, gap: settings.gap });
+    setResults(Object.create(null)); setManual(Object.create(null)); setMessages([]); setRunError(''); setBusy(true); setStatus(t('run.preparing'));
     try {
       const activeWorker = new Worker(new URL('../nest/worker.ts', import.meta.url), { type: 'module' });
       worker.current = activeWorker;
@@ -270,7 +274,10 @@ export function App() {
             <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={JSON.stringify(note)}>{describe(note)}</li>)}</ul></details>}
           {snapshot && <BuyBox jobs={snapshot.jobs} results={results} busy={busy} />}
           {!snapshot ? <EmptyLayout /> : snapshot.jobs.map(job => Object.hasOwn(results, job.material)
-            ? <Layout key={job.material} {...job} result={results[job.material]} mirroredKeys={snapshot.mirroredKeys} />
+            ? <Layout key={job.material} {...job} result={results[job.material]} mirroredKeys={snapshot.mirroredKeys} gap={snapshot.gap}
+              adjusted={Object.hasOwn(manual, job.material)} canAdjust={!busy}
+              onMove={next => setManual(prev => ({ ...prev, [job.material]: next }))}
+              onRestore={() => setManual(prev => { const rest = { ...prev }; delete rest[job.material]; return rest; })} />
             : <div class="pending-material" key={job.material}><h3>{job.material}</h3><p>{busy ? t('results.pending') : t('results.notComputed')}</p></div>)}
           <p class="results-footnote">{t('results.footnote')}</p>
         </section>

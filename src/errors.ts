@@ -16,12 +16,12 @@ export const PLAIN_CODES = [
   'pattern.foldPoints', 'pattern.foldZero', 'pattern.foldEdge', 'pattern.format', 'pattern.duplicateSize', 'pattern.pieceSizes',
   'pattern.optionalFlag', 'pattern.copyCount', 'pattern.duplicateId', 'pattern.invalid',
   // src/model/prepare.ts
-  'settings.seamRange', 'settings.gapRange', 'settings.resolutionRange', 'settings.timeRange', 'settings.seedNumber',
+  'settings.seamRange', 'settings.gapRange', 'settings.resolutionRange', 'settings.timeRange', 'settings.seedNumber', 'settings.grainRange',
   'fabric.widthRange', 'fabric.lengthRange',
   'prepare.invalidSize', 'prepare.quantityRange', 'prepare.tooMany', 'prepare.patternMissing', 'prepare.foldAligned',
   'prepare.seamUnclear', 'prepare.foldNotVertical',
   'changed.seam', 'changed.gap', 'changed.rotationNone', 'changed.rotationCross', 'changed.mirrorOff', 'changed.precisionFine',
-  'changed.precisionCoarse', 'changed.precisionCustom', 'changed.time', 'changed.seed',
+  'changed.precisionCoarse', 'changed.precisionCustom', 'changed.time', 'changed.seed', 'changed.grain',
   'delete.plain',
   // src/model/summary.ts
   'summary.computing', 'summary.buy', 'summary.buyFolded', 'summary.exact', 'summary.fits', 'summary.shrinkage', 'summary.placedPartial',

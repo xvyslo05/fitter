@@ -11,6 +11,8 @@ import type { NestResult } from '../../src/nest/types';
 // Needs library/ only. Prints numbers and ids, never pattern content.
 const present = process.env.FITTER_BENCH === '1' && existsSync(resolve('library'));
 const load = (id: string) => parsePatternFile(JSON.parse(readFileSync(resolve('library', `${id}.json`), 'utf8')));
+// FITTER_TILT=3 runs with grain tolerance 3° (default 0); the baselines below apply to 0 only.
+const TILT = Number(process.env.FITTER_TILT ?? 0), settings = { ...defaultSettings, grainTolerance: TILT };
 const PASSES = 300, WALL_MS = 5000, material = 'hlavní';
 // [pattern id, size] pairs; each is run unfolded and folded.
 const singles: [string, string][] = [['alexia-kleid', '34'], ['alexia-kleid', '52'], ['celia', '44'], ['raglan-hoodie-alex', 'L']];
@@ -31,10 +33,10 @@ function run(c: Case, mode: 'passes' | 'wall') {
   const patterns = [...new Set(c.lines.map(l => l[0]))].map(load);
   const order: OrderLine[] = c.lines.map(([id, size, quantity], i) => ({ ...makeOrder(patterns.find(p => p.id === id)!, `bench-${i}`), size, quantity }));
   const fabric = { ...defaultFabric(), folded: c.folded };
-  const pieces = prepare(patterns, order, { [material]: fabric }, defaultSettings).materials[material];
+  const pieces = prepare(patterns, order, { [material]: fabric }, settings).materials[material];
   const started = performance.now();
   let calls = 0;
-  const opts = mode === 'passes' ? { ...defaultSettings, timeMs: 60_000 } : { ...defaultSettings, timeMs: WALL_MS };
+  const opts = mode === 'passes' ? { ...settings, timeMs: 60_000 } : { ...settings, timeMs: WALL_MS };
   // nest() counts the initial pass itself, so PASSES - 1 loop rounds give exactly PASSES passes.
   const result: NestResult = nest(pieces, fabric, opts, undefined, mode === 'passes' ? () => calls++ >= PASSES - 1 : undefined);
   return { count: pieces.length, result, ms: Math.round(performance.now() - started) };
@@ -50,9 +52,9 @@ describe.skipIf(!present)('nesting benchmark (local, FITTER_BENCH=1)', () => {
       expect(fixed.result.unplaced, c.name).toEqual([]);
       expect(wall.result.unplaced, c.name).toEqual([]);
       const base = baseline[c.name];
-      if (base !== undefined) expect(fixed.result.utilization * 100, c.name).toBeGreaterThanOrEqual(base - 1);
+      if (base !== undefined && TILT === 0) expect(fixed.result.utilization * 100, c.name).toBeGreaterThanOrEqual(base - 1);
     }
-    process.stdout.write(`\nNesting benchmark, fabric 140 cm, gap ${defaultSettings.gap} cm, raster ${defaultSettings.resolution} cm, seed ${defaultSettings.seed}\n${rows.join('\n')}\n`);
+    process.stdout.write(`\nNesting benchmark, fabric 140 cm, gap ${defaultSettings.gap} cm, raster ${defaultSettings.resolution} cm, seed ${defaultSettings.seed}, grain tolerance ${TILT}°\n${rows.join('\n')}\n`);
     process.stdout.write([
       'Reference (TUL thesis, industrial markers): manual Investronica 86.0 %, AccuMark 87.3 %, NestMakerXQ 82.23 %;',
       'automatic 85.3 %, 88.3 %, 69.78 % (same order). Not directly comparable: industrial markers combine many garments',

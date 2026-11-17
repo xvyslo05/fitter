@@ -1,6 +1,6 @@
 import type { Ref } from 'preact';
 import { describe, t } from '../i18n';
-import { DEFAULT_GAP_CM, changedSettings, resetSettings } from '../model/prepare';
+import { DEFAULT_GAP_CM, DEFAULT_GRAIN_TOLERANCE_DEG, changedSettings, resetSettings } from '../model/prepare';
 import type { Settings } from '../model/prepare';
 import { LengthField, NumberField, RotationSelect } from './fields';
 
@@ -19,6 +19,8 @@ export function Refine({ settings, onSettings, detailsRef }: { settings: Setting
       <RotationSelect value={settings.rotation} label={t('refine.rotationLabel')} onChange={rotation => rotation && onSettings({ ...settings, rotation })} />
       <label class="check"><input type="checkbox" checked={settings.mirroredPairs} onChange={e => onSettings({ ...settings, mirroredPairs: e.currentTarget.checked })} />{t('refine.mirrored')}</label>
       <p class="small muted">{t('refine.mirroredNote')}</p>
+      <label class="check"><input type="checkbox" checked={settings.grainTolerance > 0} onChange={e => onSettings({ ...settings, grainTolerance: e.currentTarget.checked ? DEFAULT_GRAIN_TOLERANCE_DEG : 0 })} />{t('refine.grain', { deg: settings.grainTolerance || DEFAULT_GRAIN_TOLERANCE_DEG })}</label>
+      <p class="small muted">{t('refine.grainNote')}</p>
       <h4>{t('refine.search')}</h4>
       <div class="field-row">
         <label class="field"><span>{t('refine.precision')}</span><select value={settings.resolution} onChange={e => onSettings({ ...settings, resolution: Number(e.currentTarget.value) })}>

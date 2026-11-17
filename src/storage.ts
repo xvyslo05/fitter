@@ -48,6 +48,7 @@ export function parseWorkspace(raw: unknown): Workspace | null {
     if (numeric(s.resolution, 0.25, 1)) settings.resolution = s.resolution;
     if (numeric(s.timeMs, 0, 60000)) settings.timeMs = s.timeMs;
     if (numeric(s.seed, 0, 4294967295)) settings.seed = s.seed;
+    if (numeric(s.grainTolerance, 0, 5)) settings.grainTolerance = s.grainTolerance;
     if (rotation(s.rotation)) settings.rotation = s.rotation;
     if (typeof s.mirroredPairs === 'boolean') settings.mirroredPairs = s.mirroredPairs;
     return { order, fabrics, settings };

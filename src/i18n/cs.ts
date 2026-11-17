@@ -643,4 +643,22 @@ export const cs = {
   'error.source.overview': 'náhled skládání',
   'error.source.manual': 'bloky je třeba zadat',
   'error.unknown': 'Neznámá chyba.',
+
+  // Grain tolerance (ticket 21)
+  'error.settings.grainRange': 'Natočení dílů musí být v rozmezí 0–5°.',
+  'error.changed.grain': 'díly natočené do {value:n2}°',
+  'refine.grain': 'Povolit mírné natočení dílů (do {deg}°)',
+  'refine.grainNote': 'Díly se smí o pár stupňů odklonit od směru vlákna, aby do sebe lépe zapadly a ušetřilo se trochu látky. Nezapínejte u proužků, kostek ani látek se směrem vzoru nebo vlasu: u látky označené „Látka má vlas nebo směr vzoru“ se díly nenatáčejí nikdy. Před stříháním si ověřte, že odklon vaší látce nevadí.',
+  'layout.tilted': ', natočeno o {tilt}° od vlákna',
+  'layout.legendTilted': 'Natočeno od vlákna (do {tilt}°)',
+  'layout.tiltedShort': 'natočeno o {tilt}°',
+  // Manual adjustment of a finished layout (ticket 26)
+  'layout.adjustedBadge': 'Upraveno ručně',
+  'layout.restore': 'Vrátit výpočet',
+  'layout.dragHint': 'Díl přetáhněte (na dotykové obrazovce na něj nejdřív klepněte). Šipky ho posunou o {step:l1}, se Shiftem o {fine:l1}.',
+  'layout.pieceMovable': '{label}, šipkami lze posunout',
+  'layout.moveOutside': 'Tady by díl přečníval přes okraj látky nebo přehyb.',
+  'layout.moveFold': 'Díl na přehybu jde posouvat jen podél přehybu.',
+  'layout.moveTooClose': 'Příliš blízko: {names}. Mezi díly musí zůstat mezera {gap:l1}.',
+  'run.confirmDiscard': 'Ruční úpravy polohového plánu se přepíšou novým výpočtem. Pokračovat?',
 } as const;

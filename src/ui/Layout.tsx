@@ -5,21 +5,23 @@ import { useLocale } from '../i18n/hooks';
 import { fromUnit, toUnit } from '../i18n/units';
 import type { Unit } from '../i18n/units';
 import type { Pt } from '../model/pattern';
+import { tryMove } from '../nest/adjust';
+import type { MoveOutcome } from '../nest/adjust';
 import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
 import { lengthToBuy, placedSentence } from '../model/summary';
 import { exportPNG, exportSVG } from './export';
 
 // A placed piece against its paper pattern. flipY (a fold piece turned over along the fold) is a
 // mirror plus a half turn, so it cancels a mirrored pair copy.
-export function orientation(mirroredPair: boolean, placement: Pick<Placement, 'angle' | 'flipY'>): { mirrored: boolean; turn: number } {
-  return { mirrored: mirroredPair !== placement.flipY, turn: (placement.angle + (placement.flipY ? 180 : 0)) % 360 };
+export function orientation(mirroredPair: boolean, placement: Pick<Placement, 'angle' | 'flipY'> & { tilt?: number }): { mirrored: boolean; turn: number; tilt?: number } {
+  return { mirrored: mirroredPair !== placement.flipY, turn: (placement.angle + (placement.flipY ? 180 : 0)) % 360, ...placement.tilt ? { tilt: Math.abs(placement.tilt) } : {} };
 }
-export function orientationText({ mirrored, turn }: { mirrored: boolean; turn: number }, layers: 'single' | 'folded' | 'fold'): string {
-  const base = `${t(mirrored ? 'layout.mirrored' : 'layout.asPattern')}${turn ? t('layout.turned', { turn }) : ''}`;
+export function orientationText({ mirrored, turn, tilt }: { mirrored: boolean; turn: number; tilt?: number }, layers: 'single' | 'folded' | 'fold'): string {
+  const base = `${t(mirrored ? 'layout.mirrored' : 'layout.asPattern')}${turn ? t('layout.turned', { turn }) : ''}${tilt ? t('layout.tilted', { tilt }) : ''}`;
   return layers === 'folded' ? t('layout.foldedLayer', { base }) : layers === 'fold' ? t('layout.onFold', { base }) : base;
 }
 
-export interface PieceRow { key: string; name: string; size: string; mirrored: boolean; left: number; top: number }
+export interface PieceRow { key: string; name: string; size: string; mirrored: boolean; tilt: number; left: number; top: number }
 // Rows of the printed piece list (labels are "střih · díl · velikost #n"; positions are the piece's
 // bounding box from the fabric's left edge and top, in cm to 1 decimal) and the labels that did not fit.
 export function pieceTable(pieces: NestPiece[], result: NestResult, mirroredKeys: string[]): { rows: PieceRow[]; unplaced: string[] } {
@@ -27,7 +29,7 @@ export function pieceTable(pieces: NestPiece[], result: NestResult, mirroredKeys
   const rows = result.placements.map((placement): PieceRow => {
     const parts = (labels.get(placement.key) ?? placement.key).split(' · '), b = bbox(placement.polygon);
     return { key: placement.key, name: parts.length > 2 ? parts.slice(1, -1).join(' · ') : parts[parts.length - 1], size: parts.length > 2 ? parts[parts.length - 1].replace(/ #\d+$/, '') : '',
-      mirrored: orientation(mirroredSet.has(placement.key), placement).mirrored, left: round(b.minX), top: round(b.minY) };
+      mirrored: orientation(mirroredSet.has(placement.key), placement).mirrored, tilt: Math.abs(placement.tilt), left: round(b.minX), top: round(b.minY) };
   });
   return { rows, unplaced: result.unplaced.map(key => labels.get(key) ?? key) };
 }
@@ -75,26 +77,69 @@ function Dimension({ x1, y1, x2, y2, label }: { x1: number; y1: number; x2: numb
       style="stroke:var(--fabric)" stroke-width="0.5" paint-order="stroke">{label}</text>
   </g>;
 }
-export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
+export function Layout({ material, fabric, pieces, result, mirroredKeys, gap, adjusted, canAdjust, onMove, onRestore }: {
   material: string; fabric: Fabric; pieces: NestPiece[]; result: NestResult; mirroredKeys: string[];
+  // Manual adjustment: `gap` is the gap the plan was computed with; `adjusted` says the result was moved by hand.
+  gap: number; adjusted: boolean; canAdjust: boolean; onMove: (result: NestResult) => void; onRestore: () => void;
 }) {
   const { unit } = useLocale();
   const ref = useRef<SVGSVGElement>(null), [error, setError] = useState(''), [exporting, setExporting] = useState(false);
   const [pointer, setPointer] = useState<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ key: string; sx: number; sy: number; outcome: MoveOutcome } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null), [blocked, setBlocked] = useState('');
   const width = fabric.width / (fabric.folded ? 2 : 1), length = fabric.length ?? result.usedLength;
   const displayLength = Math.max(length, 1), pieceMap = new Map(pieces.map((p, i) => [p.key, { ...p, color: colors[i % colors.length] }]));
-  const edges = new Map(result.placements.map(p => [p.key, bbox(p.polygon)]));
+  const edges = new Map(result.placements.map(p => {
+    const b = bbox(p.polygon), d = drag?.key === p.key ? drag.outcome : null;
+    return [p.key, d ? { ...b, minX: b.minX + d.dx, maxX: b.maxX + d.dx, minY: b.minY + d.dy, maxY: b.maxY + d.dy } : b];
+  }));
   const mirroredSet = new Set(mirroredKeys), turned = new Map(result.placements.map(p => [p.key, orientation(mirroredSet.has(p.key), p)]));
   const layers = (p: NestPiece) => p.foldEdge ? 'fold' : fabric.folded ? 'folded' : 'single', hatch = `mirror-${useId()}`;
   const xMarks = breakpoints([...edges.values()].flatMap(b => [b.minX, b.maxX]), 4.5);
   const yMarks = breakpoints([...edges.values()].flatMap(b => [b.minY, b.maxY]), 2.4);
-  const table = pieceTable(pieces, result, mirroredKeys), hot = active ? edges.get(active) : undefined;
+  const tiltMax = Math.max(0, ...result.placements.map(p => Math.abs(p.tilt))), table = pieceTable(pieces, result, mirroredKeys), hot = active ? edges.get(active) : undefined;
   const fromLeft = t(fabric.folded ? 'layout.fromFold' : 'layout.fromLeft'), fromRight = t(fabric.folded ? 'layout.fromEdge' : 'layout.fromRight');
-  function track(e: PointerEvent) {
+  const toSvg = (e: PointerEvent) => {
     const matrix = ref.current?.getScreenCTM();
-    if (!matrix) return;
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse());
+    return matrix ? new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse()) : null;
+  };
+  const nameOf = (key: string) => pieceMap.get(key)?.label.split(' · ').slice(1).join(' · ') ?? key;
+  const whyNot = (o: MoveOutcome) => o.reason === 'gap' ? t('layout.moveTooClose', { names: (o.blockedBy ?? []).map(nameOf).join(', '), gap }) : t(o.reason === 'fold' ? 'layout.moveFold' : 'layout.moveOutside');
+  // A mouse drags at once; a finger first selects the piece, so that the first touch still scrolls the page.
+  function startDrag(e: PointerEvent, key: string) {
+    if (!canAdjust || e.button !== 0) return;
+    if (e.pointerType === 'touch' && selected !== key) { setSelected(key); return; }
+    const p = toSvg(e);
+    if (!p) return;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    setActive(key); setBlocked(''); setDrag({ key, sx: p.x, sy: p.y, outcome: { result, ok: true, dx: 0, dy: 0 } });
+  }
+  function moveDrag(e: PointerEvent) {
+    const p = drag && toSvg(e);
+    if (!drag || !p) return;
+    const onFold = pieceMap.get(drag.key)?.foldEdge;
+    setDrag({ ...drag, outcome: tryMove(result, pieces, fabric, gap, drag.key, onFold ? 0 : p.x - drag.sx, p.y - drag.sy) });
+  }
+  // An invalid drop leaves the piece where it was.
+  function endDrag(commit: boolean) {
+    if (!drag) return;
+    const { outcome } = drag;
+    if (commit && outcome.ok && (outcome.dx || outcome.dy)) onMove(outcome.result);
+    setBlocked(commit && !outcome.ok ? whyNot(outcome) : ''); setDrag(null);
+  }
+  const ARROWS: Record<string, [number, number] | undefined> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  function nudge(e: KeyboardEvent, key: string) {
+    const dir = ARROWS[e.key];
+    if (!dir || !canAdjust) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 0.1 : 1, outcome = tryMove(result, pieces, fabric, gap, key, dir[0] * step, dir[1] * step);
+    setBlocked(outcome.ok ? '' : whyNot(outcome));
+    if (outcome.ok) onMove(outcome.result);
+  }
+  function track(e: PointerEvent) {
+    const p = toSvg(e);
+    if (!p) return;
     setPointer(p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= displayLength ? { x: p.x, y: p.y, cx: e.clientX, cy: e.clientY } : null);
   }
   return <article class="result-card">
@@ -120,6 +165,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
           <text x={-8} y={-7} stroke="none" font-size="2">{fmt.unit(unit)}</text>
         </g>
         <rect x={0} y={0} width={width} height={displayLength} fill="none" style="stroke:var(--ink)" stroke-width="0.35" />
+        <rect x={-17} y={-14} width={width + 23} height={displayLength + 20} fill="none" pointer-events="all" onPointerDown={() => setSelected(null)} />
         {result.placements.map(placement => {
           const p = pieceMap.get(placement.key)!;
           const b = bbox(placement.polygon), [cx, cy] = labelPoint(placement.polygon);
@@ -129,14 +175,20 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
           const shortLabel = fullLabel.length > maxChars ? fullLabel.slice(0, maxChars - 1) + '…' : fullLabel;
           const arrow = Math.min(5, Math.min(b.height, b.width) * 0.22);
           const o = turned.get(p.key)!, points = placement.polygon.map(v => v.join(',')).join(' ');
-          return <g key={p.key} onPointerEnter={() => setActive(p.key)} onPointerLeave={() => setActive(k => k === p.key ? null : k)}>
+          const moving = drag?.key === p.key ? drag.outcome : null;
+          return <g key={p.key} onPointerEnter={() => setActive(p.key)} onPointerLeave={() => setActive(k => k === p.key ? null : k)}
+            class={`layout-piece${canAdjust ? ' movable' : ''}${selected === p.key ? ' selected' : ''}${moving ? moving.ok ? ' dragging' : ' blocked' : ''}`}
+            transform={moving ? `translate(${moving.dx} ${moving.dy})` : undefined}
+            {...canAdjust ? { tabIndex: 0, role: 'button', 'aria-label': t('layout.pieceMovable', { label: nameOf(p.key) }),
+              onPointerDown: (e: PointerEvent) => startDrag(e, p.key), onPointerMove: moveDrag, onPointerUp: () => endDrag(true), onPointerCancel: () => endDrag(false),
+              onKeyDown: (e: KeyboardEvent) => nudge(e, p.key) } : {}}>
             <desc>{p.label} · {orientationText(o, layers(p))}</desc>
             <polygon points={points} style={{ fill: p.color, stroke: active === p.key ? MARK : 'var(--ink)' }}
               stroke-width={active === p.key ? 0.45 : 0.22} stroke-linejoin="round" />
             {o.mirrored && <polygon points={points} fill={`url(#${hatch})`} opacity="0.35" pointer-events="none" />}
             <g transform={`translate(${cx} ${cy})`} style="fill:var(--text)" font-family="system-ui, sans-serif" font-size={fontSize} text-anchor="middle">
               <text y={-fontSize}>{shortLabel}</text>
-              <g transform={`rotate(${placement.angle + (placement.flipY ? 180 : 0)})`} style="stroke:var(--ink)" stroke-width="0.25" fill="none">
+              <g transform={`rotate(${placement.angle + placement.tilt + (placement.flipY ? 180 : 0)})`} style="stroke:var(--ink)" stroke-width="0.25" fill="none">
                 <path d={`M0,0 L0,${arrow} M-0.8,${arrow - 1} L0,${arrow} L0.8,${arrow - 1}`} />
               </g>
               {o.mirrored && <text x={fontSize * 1.7} y={fontSize * 1.9} font-size={fontSize * 1.4} font-weight="700">↔</text>}
@@ -185,7 +237,10 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         <span class="tip-point">{t('layout.tipPoint', { fromLeft, x: pointer.x, fromRight, right: width - pointer.x, y: pointer.y })}</span>
       </div>}
     </div>
-    <div class="drawing-footer"><span>↓ {t('layout.grain')} <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ {t('layout.legendMirrored')}</span></span><span class="print-legacy">{t('layout.iterations', { count: fmt.number(result.iterations) })}</span></div>
+    {(canAdjust || adjusted) && <div class="adjust-bar screen-only">{canAdjust && <span class="small muted">{t('layout.dragHint', { step: 1, fine: 0.1 })}</span>}
+      {adjusted && <><span class="badge">{t('layout.adjustedBadge')}</span><button type="button" class="secondary" onClick={onRestore}>{t('layout.restore')}</button></>}</div>}
+    <p class="small adjust-note screen-only" role="status">{drag && !drag.outcome.ok ? whyNot(drag.outcome) : blocked}</p>
+    <div class="drawing-footer"><span>↓ {t('layout.grain')} <span class="legend-gap"><span class="mirror-swatch" aria-hidden="true" />↔ {t('layout.legendMirrored')}</span>{tiltMax > 0 && <span class="legend-gap">{t('layout.legendTilted', { tilt: tiltMax })}</span>}</span><span class="print-legacy">{t('layout.iterations', { count: fmt.number(result.iterations) })}</span></div>
     <div class="result-summary screen-only"><span>{t('layout.utilization')} <strong>{percent(result.utilization)} %</strong></span>
       <details class="result-details"><summary>{t('layout.details')}</summary>
         <dl><div><dt>{t('layout.planSize')}</dt><dd>{cm(width)} × {cm(length)} {fmt.unit(unit)}</dd></div>
@@ -197,7 +252,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
         ? t('layout.printBuy', { length: lengthToBuy(result.usedLength) }) : t('layout.printFixed', { length: fabric.length, used: result.usedLength })}</p>
       <p class="small">{t('layout.printScaleNote')}</p>
       <table class="print-table"><thead><tr><th>{t('layout.colPiece')}</th><th>{t('layout.colSize')}</th><th>{t('layout.colMirrored')}</th><th>{t(fabric.folded ? 'layout.colFromFold' : 'layout.colFromLeft')}</th><th>{t('layout.colTop')}</th></tr></thead>
-        <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}</td><td>{row.size}</td><td>{t(row.mirrored ? 'layout.mirroredYes' : 'layout.mirroredNo')}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>
+        <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}{row.tilt > 0 && ` (${t('layout.tiltedShort', { tilt: row.tilt })})`}</td><td>{row.size}</td><td>{t(row.mirrored ? 'layout.mirroredYes' : 'layout.mirroredNo')}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>
     </div>
     <div class="export-actions"><span class="muted small">{t('layout.download')}</span>
       <button type="button" class="secondary" disabled={exporting} onClick={async () => {

@@ -19,12 +19,16 @@ export interface Settings extends NestOptions {
   mirroredPairs: boolean;
   rotation: Rotation;
   addSeam: Record<string, boolean>;
+  // Largest tilt of a piece off the grainline in degrees, 0-5; 0 = off.
+  grainTolerance: number;
 }
 // Default gap between pieces in cm; pending confirmation, ticket 28.
 export const DEFAULT_GAP_CM = 0.5;
+// Tilt the checkbox "Povolit mírné natočení dílů" switches on; confirm value (ticket 28). Off by default until confirmed.
+export const DEFAULT_GRAIN_TOLERANCE_DEG = 3;
 export const defaultSettings: Settings = {
   seamAmount: 1, gap: DEFAULT_GAP_CM, resolution: 0.5, timeMs: 5000, seed: 42,
-  mirroredPairs: true, rotation: '180', addSeam: {},
+  mirroredPairs: true, rotation: '180', addSeam: {}, grainTolerance: 0,
 };
 // Quick picks for the fabric width field (cm); pending confirmation of the values, ticket 13 (O4).
 export const FABRIC_WIDTH_PRESETS_CM = [110, 140, 150] as const;
@@ -76,6 +80,7 @@ export function checkSettings(settings: Settings): Note | null {
   if (!inRange(settings.resolution, 0.25, 1)) return note('settings.resolutionRange');
   if (!inRange(settings.timeMs, 0, 60_000)) return note('settings.timeRange');
   if (!Number.isFinite(settings.seed)) return note('settings.seedNumber');
+  if (!inRange(settings.grainTolerance, 0, 5)) return note('settings.grainRange');
   return null;
 }
 export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>, materials: string[]): Note | null {
@@ -99,6 +104,7 @@ export function changedSettings(settings: Settings): Note[] {
   if (settings.mirroredPairs !== defaultSettings.mirroredPairs) changed.push(note('changed.mirrorOff'));
   if (settings.resolution !== defaultSettings.resolution) changed.push(settings.resolution === 0.25 ? note('changed.precisionFine') : settings.resolution === 1 ? note('changed.precisionCoarse') : note('changed.precisionCustom', value(settings.resolution)));
   if (settings.timeMs !== defaultSettings.timeMs) changed.push(note('changed.time', value(settings.timeMs / 1000)));
+  if (settings.grainTolerance !== defaultSettings.grainTolerance) changed.push(note('changed.grain', value(settings.grainTolerance)));
   if (settings.seed !== defaultSettings.seed) changed.push(note('changed.seed', value(settings.seed)));
   return changed;
 }
@@ -181,6 +187,7 @@ export function prepare(
             polygon: mirrored ? mirrorX(polygon) : polygon,
             rotation: fabric.directional ? 'none' : own(line.rotations, piece.id) ?? settings.rotation,
             foldEdge: keepFold,
+            tilt: fabric.directional || keepFold ? 0 : settings.grainTolerance,
           });
         }
       }

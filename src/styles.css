@@ -1628,3 +1628,16 @@ main {
     min-width:56px;
   }
 }
+
+/* Manual adjustment of a finished layout */
+.layout-piece.movable { cursor:grab; }
+.layout-piece.selected { touch-action:none; }
+.layout-piece.selected polygon, .layout-piece:focus-visible polygon { stroke:var(--mark) !important; stroke-width:.5 !important; }
+.layout-piece:focus { outline:none; }
+.layout-piece.dragging { cursor:grabbing; opacity:.85; }
+.layout-piece.blocked { cursor:not-allowed; }
+.layout-piece.blocked polygon { stroke:var(--danger) !important; stroke-width:.7 !important; stroke-dasharray:1.2 .6; }
+.adjust-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 22px 0; }
+.adjust-bar .small { margin-right:auto; }
+.adjust-note { padding:6px 22px 0; min-height:1.4em; color:var(--danger); }
+.adjust-note:empty { display:none; }

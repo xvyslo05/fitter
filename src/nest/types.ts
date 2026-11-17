@@ -8,6 +8,8 @@ export interface NestPiece {
   polygon: Pt[];
   rotation: Rotation;
   foldEdge?: boolean;
+  // Largest tilt off the grainline in degrees (either direction); 0 or missing = none.
+  tilt?: number;
 }
 // Directional fabric (nap, one-way print): pieces keep one direction, never rotated or flipped.
 export interface Fabric { width: number; length: number | null; folded: boolean; directional?: boolean }
@@ -18,6 +20,8 @@ export interface Placement {
   y: number;
   angle: 0 | 90 | 180 | 270;
   flipY: boolean;
+  // Signed degrees the piece is turned off the grainline on top of `angle`; 0 = on the grain.
+  tilt: number;
   polygon: Pt[];
 }
 export interface NestResult {

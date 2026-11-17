@@ -4,7 +4,7 @@ import { fabricSummary, lengthToBuy, placedSentence } from '../src/model/summary
 import type { Fabric, NestResult } from '../src/nest/types';
 
 const result = (usedLength: number, unplaced: string[] = [], placed = 4): NestResult => ({
-  placements: Array.from({ length: placed }, (_, i) => ({ key: `p${i}`, x: 0, y: 0, angle: 0 as const, flipY: false, polygon: [] })),
+  placements: Array.from({ length: placed }, (_, i) => ({ key: `p${i}`, x: 0, y: 0, angle: 0 as const, flipY: false, tilt: 0, polygon: [] })),
   unplaced, usedLength, utilization: 0.7, iterations: 10,
 });
 const role: Fabric = { width: 140, length: null, folded: false };

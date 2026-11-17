@@ -21,9 +21,17 @@ function validate(pieces: NestPiece[], fabric: Fabric, opts: NestOptions) {
         b.width > 10_000 || b.height > 10_000 || !['none', '180', '90'].includes(p.rotation))
       throw new AppError('nest.pieceInvalid');
     if (p.foldEdge && !fabric.folded) throw new AppError('nest.foldNeedsFolded');
+    if (p.tilt !== undefined && !(Number.isFinite(p.tilt) && p.tilt >= 0 && p.tilt <= 5)) throw new AppError('nest.pieceInvalid');
   }
 }
 
+// Rasters of one piece: `base` stays on the grain, `tilted` are the copies turned off it. A pass tries all of
+// `base` and, for a piece picked by the search, one tilted copy; so tilting never multiplies the work per pass.
+interface Variants { base: Raster[]; tilted: Raster[] }
+const variantsOf = (piece: NestPiece, opts: NestOptions): Variants => {
+  const all = orientations(piece, opts.gap, opts.resolution);
+  return { base: all.filter(r => r.tilt === 0), tilted: all.filter(r => r.tilt !== 0) };
+};
 function collisionJump(board: Map<number, Span[]>, raster: Raster, x: number, y: number): number {
   for (const row of raster.rows) {
     const occupied = board.get(y + row.y);
@@ -37,16 +45,17 @@ function collisionJump(board: Map<number, Span[]>, raster: Raster, x: number, y:
   }
   return x;
 }
-function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, rasters: Raster[][], order: number[], orient?: number[]): NestResult {
+function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, rasters: Variants[], order: number[], orient?: number[], tilts?: number[]): NestResult {
   const board = new Map<number, Span[]>(), placements: Placement[] = [], unplaced: string[] = [];
   const width = fabric.width / (fabric.folded ? 2 : 1), step = opts.resolution;
   // boardBottom: first raster row below every occupied cell.
   let usedLength = 0, placedArea = 0, boardBottom = 0;
   for (const index of order) {
-    const piece = pieces[index], variants = rasters[index];
+    const piece = pieces[index], { base, tilted } = rasters[index], pick = tilts?.[index] ?? 0;
     let best: { x: number; y: number; raster: Raster } | undefined;
-    for (let n = 0; n < variants.length; n++) {
-      const raster = variants[((orient?.[index] ?? 0) + n) % variants.length];
+    // The picked tilted copy comes last, so it wins only by being strictly better placed.
+    for (let n = 0; n < base.length + (pick ? 1 : 0); n++) {
+      const raster = n < base.length ? base[((orient?.[index] ?? 0) + n) % base.length] : tilted[pick - 1];
       if (raster.width > width + 1e-8 || (fabric.length !== null && raster.height > fabric.length + 1e-8)) continue;
       // Ordinary pieces on folded fabric keep their inflated cells right of the fold,
       // i.e. at least gap / 2 from the crease and a full gap from their mirrored copy.
@@ -73,7 +82,7 @@ function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, raste
       const key = y + row.y;
       board.set(key, mergeSpans([...(board.get(key) ?? []), ...row.spans.map(([a, b]): Span => [a + x, b + x])]));
     }
-    placements.push({ key: piece.key, x: x * step, y: y * step, angle: raster.angle, flipY: raster.flipY,
+    placements.push({ key: piece.key, x: x * step, y: y * step, angle: raster.angle, flipY: raster.flipY, tilt: raster.tilt,
       polygon: translate(raster.polygon, x * step, y * step) });
     usedLength = Math.max(usedLength, y * step + raster.height);
     if (raster.rows.length) boardBottom = Math.max(boardBottom, y + raster.rows[raster.rows.length - 1].y + 1);
@@ -83,12 +92,15 @@ function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, raste
 }
 const initialOrder = (pieces: NestPiece[]) => pieces.map((_, i) => i).sort((a, b) => area(pieces[b].polygon) - area(pieces[a].polygon));
 
-export function nestOnce(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, order?: number[], orient?: number[]): NestResult {
+export function nestOnce(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, order?: number[], orient?: number[], tilts?: number[]): NestResult {
   validate(pieces, fabric, opts);
   if (order && (order.length !== pieces.length || new Set(order).size !== pieces.length || order.some(i => !Number.isInteger(i) || i < 0 || i >= pieces.length)))
     throw new AppError('nest.orderInvalid');
   if (orient && orient.some(i => !Number.isInteger(i) || i < 0)) throw new AppError('nest.orientInvalid');
-  return placePass(pieces, fabric, opts, pieces.map(p => orientations(p, opts.gap, opts.resolution)), order ?? initialOrder(pieces), orient);
+  const rasters = pieces.map(p => variantsOf(p, opts));
+  if (tilts && (tilts.length !== pieces.length || tilts.some((n, i) => !Number.isInteger(n) || n < 0 || n > rasters[i].tilted.length)))
+    throw new AppError('nest.orientInvalid');
+  return placePass(pieces, fabric, opts, rasters, order ?? initialOrder(pieces), orient, tilts);
 }
 export function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
@@ -103,10 +115,10 @@ export function seededRandom(seed: number): () => number {
 export function nest(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, onProgress?: (best: NestResult) => void, shouldStop?: () => boolean): NestResult {
   validate(pieces, fabric, opts);
   const started = performance.now(), random = seededRandom(opts.seed);
-  const rasters = pieces.map(p => orientations(p, opts.gap, opts.resolution));
+  const rasters = pieces.map(p => variantsOf(p, opts));
   const areas = new Map(pieces.map(p => [p.key, area(p.polygon)]));
-  let order = initialOrder(pieces), orient = pieces.map(() => 0);
-  let best = placePass(pieces, fabric, opts, rasters, order, orient), iterations = 1;
+  let order = initialOrder(pieces), orient = pieces.map(() => 0), tilts = pieces.map(() => 0);
+  let best = placePass(pieces, fabric, opts, rasters, order, orient, tilts), iterations = 1;
   onProgress?.(best);
   const score = (r: NestResult) => [r.unplaced.length, r.unplaced.reduce((sum, key) => sum + (areas.get(key) ?? 0), 0), r.usedLength];
   const better = (a: NestResult, b: NestResult) => {
@@ -116,14 +128,16 @@ export function nest(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, onP
   };
   while (pieces.length > 0 && performance.now() - started < opts.timeMs && !shouldStop?.()) {
     let candidateOrder = [...order];
-    const candidateOrient = [...orient];
+    const candidateOrient = [...orient], candidateTilts = [...tilts];
     if (iterations < 3) {
       const dimension = iterations === 1 ? 'height' : 'width';
       candidateOrder.sort((a, b) => bbox(pieces[b].polygon)[dimension] - bbox(pieces[a].polygon)[dimension]);
     } else {
       const a = Math.floor(random() * pieces.length), b = Math.floor(random() * pieces.length);
       [candidateOrder[a], candidateOrder[b]] = [candidateOrder[b], candidateOrder[a]];
-      candidateOrient[a] = Math.floor(random() * rasters[a].length);
+      candidateOrient[a] = Math.floor(random() * rasters[a].base.length);
+      // 0 = on the grain; the random call is skipped without tilt, so tolerance 0 keeps today's sequence.
+      if (rasters[a].tilted.length) candidateTilts[a] = Math.floor(random() * (rasters[a].tilted.length + 1));
       if (iterations % 20 === 0) {
         candidateOrder = [...order];
         for (let i = candidateOrder.length - 1; i > 0; i--) {
@@ -132,10 +146,10 @@ export function nest(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, onP
         }
       }
     }
-    const result = placePass(pieces, fabric, opts, rasters, candidateOrder, candidateOrient);
+    const result = placePass(pieces, fabric, opts, rasters, candidateOrder, candidateOrient, candidateTilts);
     iterations++;
     if (better(result, best)) {
-      best = { ...result, iterations }; order = candidateOrder; orient = candidateOrient;
+      best = { ...result, iterations }; order = candidateOrder; orient = candidateOrient; tilts = candidateTilts;
       onProgress?.(best);
     }
   }
