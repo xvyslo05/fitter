@@ -28,7 +28,7 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
   const k = result.cmPerPt, ids = new Set<string>();
   const pieces = drafts.filter(d => d.include).flatMap((draft): Piece[] => {
     const candidate = result.candidates.find(c => c.id === draft.candidateId);
-    if (!candidate) throw new Error(`Díl ${draft.candidateId} už mezi kandidáty není.`);
+    if (!candidate) throw new Error(`Díl ${draft.candidateId} už mezi nalezenými díly není.`);
     const origin = centroid(openRing(candidate.sizes[candidate.refSize])), folds = sizeFolds(candidate, draft.foldEdge, k);
     const place = (points: Pt[]): Pt[] => rotate(points.map(([x, y]) => [x - origin[0], y - origin[1]]), 90 - draft.grainAngle).map(([x, y]) => [x * k, y * k]);
     const shape = (ring: Pt[], fold: [Pt, Pt] | null | undefined): PieceSize => {

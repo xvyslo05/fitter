@@ -19,7 +19,7 @@ function validate(pieces: NestPiece[], fabric: Fabric, opts: NestOptions) {
     if (p.polygon.length < 3 || p.polygon.some(v => v.some(n => !Number.isFinite(n))) || area(p.polygon) <= 0 ||
         b.width > 10_000 || b.height > 10_000 || !['none', '180', '90'].includes(p.rotation))
       throw new Error('Díl má neplatný obrys, rozměr nebo otáčení.');
-    if (p.foldEdge && !fabric.folded) throw new Error('Díl na lomu vyžaduje složenou látku.');
+    if (p.foldEdge && !fabric.folded) throw new Error('Díl na přehybu vyžaduje složenou látku.');
   }
 }
 

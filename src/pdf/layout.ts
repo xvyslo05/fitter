@@ -317,7 +317,7 @@ export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string;
   let blocks = blocksFromMatches(doc.pages, links, step);
   if (labels.length) {
     const labeled = blocksFromMatches(doc.pages, labels, step);
-    if (labeled.length < blocks.length) { blocks = labeled; sources.push('popisky dlaždic'); }
+    if (labeled.length < blocks.length) { blocks = labeled; sources.push('popisky stránek'); }
   }
   if (seams.length) sources.push('návaznost hran');
   const linked = blocks.filter(b => b.pages[0] !== b.pages[1]).reduce((n, b) => n + b.pages[1] - b.pages[0] + 1, 0);

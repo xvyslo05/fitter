@@ -14,7 +14,7 @@ export function RotationSelect({ value, onChange, inherit = false, label = 'Otá
 }) {
   return <label class="field"><span>{label}</span><select value={value} onChange={e => onChange(e.currentTarget.value as Rotation | '')}>
     {inherit && <option value="">Dle nastavení</option>}
-    <option value="none">Bez otáčení</option><option value="180">0° / 180° · po vlákně</option>
+    <option value="none">Bez otáčení</option><option value="180">0° / 180° · po niti</option>
     <option value="90">0° / 90° / 180° / 270°</option>
   </select></label>;
 }

@@ -24,7 +24,7 @@ export function Library({ patterns, loading, onImport, onImportPdf, onBackup, on
       <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>Obnovit ze zálohy</button></div>
     <div class="library-list">{patterns.map(p => <div class="library-item" key={p.id}>
       <div class="grow"><strong>{p.name}</strong><p>{p.id === demo.id ? 'Syntetické demo' : p.author ?? 'Vlastní střih'} · {p.pieces.length} dílů · {p.sizes.join(', ')}</p></div>
-      <button type="button" class="text-button" onClick={() => onAdd(p)} aria-label={`Přidat ${p.name} do zakázky`}>+ Přidat</button>
+      <button type="button" class="text-button" onClick={() => onAdd(p)} aria-label={`Přidat ${p.name} do seznamu Co šiju`}>+ Přidat</button>
       {p.id !== demo.id && <button type="button" class="icon-button" aria-label={`Smazat ${p.name} z knihovny`} onClick={() => onDelete(p)}>×</button>}
     </div>)}</div>
     <p class="privacy"><span aria-hidden="true">◈</span> Střihy zůstávají v tomto prohlížeči. Nikam je neposíláme.</p>

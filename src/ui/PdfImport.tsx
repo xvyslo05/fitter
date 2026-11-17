@@ -263,17 +263,17 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null, com
     e.preventDefault();
   };
   return <div class="pdf-preview">
-    <div class="pdf-preview-heading"><h3>Složený arch</h3></div>
-    <p id={hintId} class="small muted">Přibližujte gestem, Ctrl + kolečkem, dvojklikem nebo tlačítky. Přiblížený arch posunete tažením nebo kolečkem.</p>
+    <div class="pdf-preview-heading"><h3>Slepený střih</h3></div>
+    <p id={hintId} class="small muted">Přibližujte gestem, Ctrl + kolečkem, dvojklikem nebo tlačítky. Přiblížený střih posunete tažením nebo kolečkem.</p>
     {sizesMode ? <p class="pdf-size-colors">{result?.sizes.map((size, i) => <span key={size} style={{ color: sizeColor(i) }}>● {size}</span>)}</p>
       : <p class="small muted"><span class="pdf-seam verified" /> navazuje <span class="pdf-seam" /> nejisté – zkontrolujte · {sheet.placements.length} stránek</p>}
-    <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label="Náhled archu" aria-describedby={hintId} onKeyDown={key}>
-      <canvas ref={canvas} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} kandidátů` : `Složený arch: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`}
+    <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label="Náhled slepeného střihu" aria-describedby={hintId} onKeyDown={key}>
+      <canvas ref={canvas} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} dílů` : `Slepený střih: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDblClick={e => zoomAt(2, local(e))} />
       <div class="pdf-zoom">
         <button type="button" class="secondary" aria-label="Přiblížit" disabled={atMax} onClick={() => zoomAt(1.5, centre())}>+</button>
         <button type="button" class="secondary" aria-label="Oddálit" disabled={atFit} onClick={() => zoomAt(1 / 1.5, centre())}>−</button>
-        <button type="button" class="secondary" disabled={atFit} onClick={refit}>Celý arch</button>
+        <button type="button" class="secondary" disabled={atFit} onClick={refit}>Celý střih</button>
       </div>
     </div>
   </div>;
@@ -315,7 +315,7 @@ function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, 
     {detected.squarePt && <SquarePicture doc={doc} scale={detected} />}
     <p id={name}><strong>Má tento čtverec na vašem výtisku {cmText(detected.squareCm)} cm?</strong></p>
     {buttons(!no, v => onNo(!v), 'Ano', 'Ne / nevím')}
-    {no && <label class="field"><span>Kolik cm jste naměřila?</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
+    {no && <label class="field"><span>Kolik cm vám vyšlo?</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
       <span class="small muted">Změřte stranu čtverce pravítkem na vytištěné stránce.</span></label>}
   </div>;
   // No square: 100 % is assumed; the largest traced piece offers a ruler check.
@@ -418,7 +418,7 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L). U střihu s více velikostmi znamená „uni“ (nebo „vše“) čáru společnou všem velikostem: lem, lom, jednovelikostní díl. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
+    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L). U střihu s více velikostmi znamená „uni“ (nebo „vše“) čáru společnou všem velikostem: lem, přehyb, jednovelikostní díl. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
     <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
       <tbody>{legend.map((entry, i) => <tr key={entry.key} class={[highlight === entry.key && 'highlighted', pinned === entry.key && 'pinned'].filter(Boolean).join(' ') || undefined}
         onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
@@ -444,9 +444,9 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
       <p class="small">Zkuste verzi střihu s vrstvami nebo s každou velikostí zvlášť, pokud ji prodejce nabízí. Případně jste jedné velikosti přiřadili čáry více velikostí. Můžete také zkusit vybrat jediný díl.</p></div>}
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
-    <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>
+    <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno dílů: ${result.candidates.length}` : ''}</p>
   </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={highlight} companions={companions} />
-    {result && <section><h3>Kandidáti dílů</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
+    {result && <section><h3>Nalezené díly</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
       <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Díl</th><th>Velikost</th><th>Plocha (cm²)</th><th>Šířka × výška (cm)</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {
           const b = bbox(ring), k = result.cmPerPt;
@@ -580,11 +580,11 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
         <div class="pdf-workspace"><div class="pdf-editor"><h3 ref={editors} tabIndex={-1}>Bloky stránek</h3>
           {!manual && <p class="warning" role="status">{edited.layout ? 'Rozložení stránek se nepodařilo rozpoznat jistě. Zkontrolujte ho a podle potřeby upravte bloky.' : 'Rozložení stránek je třeba opravit.'}</p>}
           <p class="small muted">Detekce: {detected.source}. Rozložení vždy zkontrolujte v náhledu.</p>
-          <p class="small muted">Každý blok má rozsah stránek a počty dlaždic v řádcích (např. 2,4,4). Řádky jsou zarovnané vlevo; bloky leží vedle sebe.</p>
+          <p class="small muted">Každý blok má rozsah stránek a počty stránek v řádcích (např. 2,4,4). Řádky jsou zarovnané vlevo; bloky leží vedle sebe.</p>
           {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>Blok {i + 1}</legend>
             <div class="field-row"><label class="field"><span>Od stránky</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>
               <label class="field"><span>Do stránky</span><input type="number" min="1" max={doc.pages.length} value={b.last} onInput={e => update(i, 'last', e.currentTarget.value)} /></label></div>
-            <label class="field"><span>Dlaždic v jednotlivých řádcích</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
+            <label class="field"><span>Stránek v jednotlivých řádcích</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
             <button type="button" class="text-button" onClick={() => setBlocks(prev => prev.filter((_, n) => n !== i))}>Odebrat blok {i + 1}</button>
           </fieldset>)}
           <div class="pdf-block-actions"><button type="button" class="secondary" onClick={() => setBlocks(prev => [...prev, { first: '', last: '', rows: '' }])}>+ Přidat blok</button>
@@ -594,7 +594,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
             <p class="small muted">Tyto stránky nejsou v aktuálních blocích. Můžete je přidat úpravou rozsahů nebo přidáním bloku.</p>
             <ul class="pdf-unused" aria-label="Nepoužité stránky">{unused.map(page => <li key={page}>Stránka {page}</li>)}</ul>
           </section>}
-          <h3>Krok dlaždic · překryv</h3><p class="small muted">Vzdálenost začátků sousedních stránek v bodech (pt). Menší krok znamená větší překryv. 1 mm = 2,835 pt.</p>
+          <h3>Krok stránek · překryv</h3><p class="small muted">Vzdálenost začátků sousedních stránek v bodech (pt). Menší krok znamená větší překryv. 1 mm = 2,835 pt.</p>
           <div class="field-row">{['Vodorovně (pt)', 'Svisle (pt)'].map((label, i) => <label class="field" key={label}><span>{label}</span><input type="text" inputMode="decimal" value={step[i]} onInput={e => { const value = e.currentTarget.value; setStep(prev => prev.map((v, n) => n === i ? value : v)); }} /></label>)}</div>
           <p class="small muted">Překryv první stránky: {(doc.pages[0].width - number(step[0])).toFixed(2)} × {(doc.pages[0].height - number(step[1])).toFixed(2)} pt.</p>
           {edited.message && <p class="warning" role="alert">{edited.message}</p>}

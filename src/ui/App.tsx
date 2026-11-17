@@ -55,7 +55,7 @@ export function App() {
   const signature = useMemo(() => JSON.stringify({ workspace, patterns }), [workspace, patterns]);
   const prepared = useMemo<{ data: PreparedOrder; error?: string }>(() => {
     try { return { data: prepare(patterns, order, fabrics, settings) }; }
-    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : 'Zkontrolujte zakázku.' }; }
+    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : 'Zkontrolujte seznam Co šiju.' }; }
   }, [patterns, order, fabrics, settings]);
   const materials = Object.keys(prepared.data.materials);
   const inputError = prepared.error ?? checkInputs(settings, fabrics, materials);
@@ -99,7 +99,7 @@ export function App() {
     for (const pattern of backup.patterns) { try { await savePattern(pattern); } catch { storageFailed = true; } }
     setPatterns(prev => [demo, ...(replace ? [] : prev.filter(p => p.id !== demo.id && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
     if (replace && backup.workspace) setWorkspace(backup.workspace);
-    messages.push(`Záloha obnovena: ${backup.patterns.length} střihů${replace && backup.workspace ? ' a zakázka' : ''}.`, ...backup.errors);
+    messages.push(`Záloha obnovena: ${backup.patterns.length} střihů${replace && backup.workspace ? ' a seznam Co šiju' : ''}.`, ...backup.errors);
     if (storageFailed) messages.push('Ukládání není dostupné, střihy zůstanou jen do zavření stránky.');
     setMessages(messages); setLoading(false);
   }
@@ -117,19 +117,19 @@ export function App() {
       await deletePattern(pattern.id);
       setPatterns(prev => prev.filter(p => p.id !== pattern.id));
       setWorkspace(prev => ({ ...prev, order: prev.order.filter(line => line.patternId !== pattern.id) }));
-      setMessages([`${pattern.name}: odstraněno z knihovny i zakázky. Původní soubor můžete znovu importovat.`]);
+      setMessages([`${pattern.name}: odstraněno z knihovny i z plánu. Původní soubor můžete znovu importovat.`]);
     } catch { setMessages(['Střih se nepodařilo odstranit z úložiště.']); }
   }
   function run() {
     if (inputError) { setMessages([inputError]); return; }
-    if (!materials.length) { setMessages(['Přidejte do zakázky alespoň jeden vybraný díl.']); return; }
+    if (!materials.length) { setMessages(['Přidejte do seznamu Co šiju alespoň jeden vybraný díl.']); return; }
     if (order.some(line => !patterns.some(p => p.id === line.patternId))) {
-      setMessages(['V zakázce chybí střih. Importujte jej znovu, nebo odeberte jeho řádek.']); return;
+      setMessages(['V seznamu Co šiju chybí střih. Importujte jej znovu, nebo odeberte jeho řádek.']); return;
     }
     const jobs = materials.map(material => ({ material, pieces: prepared.data.materials[material], fabric: own(fabrics, material) ?? defaultFabric() }));
     worker.current?.terminate();
     setSnapshot({ signature, jobs, mirroredKeys: prepared.data.mirroredKeys, notes: prepared.data.notes });
-    setResults(Object.create(null)); setMessages([]); setBusy(true); setStatus('Připravuji první rozložení…');
+    setResults(Object.create(null)); setMessages([]); setBusy(true); setStatus('Připravuji první polohový plán…');
     try {
       const activeWorker = new Worker(new URL('../nest/worker.ts', import.meta.url), { type: 'module' });
       worker.current = activeWorker;
@@ -137,16 +137,16 @@ export function App() {
         if (worker.current !== activeWorker) return;
         if (data.type === 'progress' || data.type === 'result') {
           setResults(prev => ({ ...prev, [data.material]: data.result }));
-          setStatus(`Hledám úspornější rozložení · ${data.material}`);
+          setStatus(`Hledám úspornější polohový plán · ${data.material}`);
         } else {
           setBusy(false); activeWorker.terminate(); worker.current = null;
           if (data.type === 'error') { setMessages([data.message]); setStatus('Výpočet se nezdařil.'); }
-          else setStatus('Rozložení je připravené.');
+          else setStatus('Polohový plán je připravený.');
         }
       };
       activeWorker.onerror = () => {
         if (worker.current !== activeWorker) return;
-        setMessages(['Výpočet se přerušil. Zkuste menší zakázku nebo větší krok rastru.']);
+        setMessages(['Výpočet se přerušil. Zkuste méně střihů najednou nebo větší krok rastru.']);
         setStatus('Výpočet se nezdařil.'); setBusy(false); activeWorker.terminate(); worker.current = null;
       };
       activeWorker.postMessage({ jobs, options: settings });
@@ -158,7 +158,7 @@ export function App() {
   }
   function stop() {
     worker.current?.terminate(); worker.current = null; setBusy(false);
-    setStatus('Zastaveno. Nejlepší dosud nalezené rozložení zůstává zobrazené.');
+    setStatus('Zastaveno. Nejlepší dosud nalezený polohový plán zůstává zobrazený.');
   }
 
   return <>
@@ -168,11 +168,11 @@ export function App() {
         <option value="auto">Automaticky</option><option value="light">Světlý</option><option value="dark">Tmavý</option>
       </select></label></header>
     <main>
-      {snapshot && <div class="print-only print-header"><h1>fitter · plán rozložení</h1>
+      {snapshot && <div class="print-only print-header"><h1>fitter · polohový plán</h1>
         <p>{[...new Set(order.map(line => `${patterns.find(p => p.id === line.patternId)?.name ?? line.patternId} (${line.size}, ${line.quantity}×)`))].join('; ')}</p>
         <p>{new Date().toLocaleDateString('cs')}</p></div>}
       <div class="intro"><div><p class="eyebrow">Od střihu k látce</p><h1>Střihy na svém místě.</h1><p>Rozložte díly, využijte látku a pusťte se do šití.</p></div><span class="intro-tag">Méně odstřižků.<br />Více možností.</span></div>
-      {storageWarning && <div class="notice warning" role="status">Prohlížeč neumožňuje uložit zakázku a nastavení. Po zavření stránky se nezachovají.</div>}
+      {storageWarning && <div class="notice warning" role="status">Prohlížeč neumožňuje uložit seznam Co šiju a nastavení. Po zavření stránky se nezachovají.</div>}
       {messages.length > 0 && <div class="notice" role="status"><div>{messages.map((message, i) => <p key={i}>{message}</p>)}</div>
         <button type="button" class="icon-button" aria-label="Zavřít oznámení" onClick={() => setMessages([])}>×</button></div>}
       {restore && <div class="notice" role="status"><div><p>Záloha obsahuje {restore.patterns.length} střihů z {backupDate(restore.created)}. Obnovit?</p>
@@ -185,12 +185,12 @@ export function App() {
           <fieldset disabled={busy} class="controls-fieldset">
             <Library onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onBackup={backupAll} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
               onDelete={pattern => void removePattern(pattern)} />
-            <section class="panel"><div class="section-heading"><h2><span class="step">01</span>Zakázka</h2><span class="count">{order.length}</span></div>
+            <section class="panel"><div class="section-heading"><h2><span class="step">01</span>Co šiju</h2><span class="count">{order.length}</span></div>
               {!order.length && <p class="muted">Vyberte střih v knihovně tlačítkem „+ Přidat“.</p>}
               {order.map(line => <OrderEditor key={line.id} line={line} patterns={patterns} settings={settings} onSettings={updateSettings}
                 onChange={next => setWorkspace(prev => ({ ...prev, order: prev.order.map(l => l.id === line.id ? next : l) }))}
                 onRemove={() => setWorkspace(prev => ({ ...prev, order: prev.order.filter(l => l.id !== line.id) }))} />)}
-              <button type="button" class="add-line" onClick={() => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(patterns[0])] }))}>+ Přidat řádek zakázky</button>
+              <button type="button" class="add-line" onClick={() => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(patterns[0])] }))}>+ Přidat další střih</button>
             </section>
             <section class="panel"><div class="section-heading"><h2><span class="step">02</span>Látky</h2><span class="unit-hint">v centimetrech</span></div>
               {!materials.length && <p class="muted">Materiály se objeví podle vybraných dílů.</p>}
@@ -204,16 +204,16 @@ export function App() {
                   <div class="field-row"><NumberField label={`Šířka · ${material}`} min={1} max={1000} value={fabric.width} onChange={width => updateFabric(material, { ...fabric, width })} />
                     {fabric.length !== null && <NumberField label={`Délka · ${material}`} min={1} max={10000} value={fabric.length} onChange={length => updateFabric(material, { ...fabric, length })} />}</div>
                   <label class="check"><input type="checkbox" checked={fabric.folded} onChange={e => updateFabric(material, { ...fabric, folded: e.currentTarget.checked })} />Složená napůl</label>
-                  {fabric.folded && <p class="small muted">Využitelná šířka {(fabric.width / 2).toLocaleString('cs')} cm, lom vlevo. Díl mimo lom se stříhá ve dvou vrstvách.</p>}
+                  {fabric.folded && <p class="small muted">Využitelná šířka {(fabric.width / 2).toLocaleString('cs')} cm, přehyb vlevo. Díl mimo přehyb se stříhá ve dvou vrstvách.</p>}
                   <label class="check"><input type="checkbox" checked={fabric.directional === true} onChange={e => updateFabric(material, { ...fabric, directional: e.currentTarget.checked })} />Zachovat směr (vlas, jednosměrný vzor)</label>
                   {fabric.directional && <p class="small muted">Díly se neotáčejí ani nepřeklápějí. Přebíjí výchozí otáčení i otáčení dílů; zrcadlové páry zůstávají.</p>}
                 </div>;
               })}
             </section>
             <section class="panel"><div class="section-heading"><h2><span class="step">03</span>Nastavení</h2></div>
-              <div class="field-row"><NumberField label="Švová záložka" value={settings.seamAmount} max={10} onChange={seamAmount => updateSettings({ ...settings, seamAmount })} />
+              <div class="field-row"><NumberField label="Přídavek na švy" value={settings.seamAmount} max={10} onChange={seamAmount => updateSettings({ ...settings, seamAmount })} />
                 <NumberField label="Mezera mezi díly" value={settings.gap} max={10} onChange={gap => updateSettings({ ...settings, gap })} /></div>
-              <p class="small muted">Mezera mezi díly: místo na stříhání mezi sousedními díly. Pro stříhání nůžkami nechte 0,5 cm; při 0 se díly mohou dotýkat. Švová záložka je už započítaná zvlášť.{' '}
+              <p class="small muted">Mezera mezi díly: místo na stříhání mezi sousedními díly. Pro stříhání nůžkami nechte 0,5 cm; při 0 se díly mohou dotýkat. Přídavek na švy je už započítaný zvlášť.{' '}
                 {settings.gap !== DEFAULT_GAP_CM && <button type="button" class="text-button" onClick={() => updateSettings({ ...settings, gap: DEFAULT_GAP_CM })}>Výchozí</button>}</p>
               <RotationSelect value={settings.rotation} label="Výchozí otáčení" onChange={rotation => rotation && updateSettings({ ...settings, rotation })} />
               <label class="check"><input type="checkbox" checked={settings.mirroredPairs} onChange={e => updateSettings({ ...settings, mirroredPairs: e.currentTarget.checked })} />Páry zrcadlově</label>
@@ -223,7 +223,7 @@ export function App() {
                   <option value={0.25}>0,25 cm · jemný</option><option value={0.5}>0,5 cm · běžný</option><option value={1}>1 cm · rychlý</option>
                 </select></label><NumberField label="Čas na materiál" value={settings.timeMs / 1000} min={0.1} max={60} step={0.1} suffix="s" onChange={time => updateSettings({ ...settings, timeMs: time * 1000 })} /></div>
                 <NumberField label="Náhodné semínko" suffix="" value={settings.seed} min={0} max={4294967295} step={1} onChange={seed => updateSettings({ ...settings, seed })} />
-                <p class="small muted">Jemnější rastr hledá těsnější rozložení. Výsledek je přibližný; absolutní minimum nelze zaručit.</p>
+                <p class="small muted">Jemnější rastr hledá těsnější polohový plán. Výsledek je přibližný; absolutní minimum nelze zaručit.</p>
               </details>
             </section>
           </fieldset>
@@ -232,13 +232,14 @@ export function App() {
             // Distinct keys + preventDefault: otherwise Preact reuses this element as the submit button
             // before the click's default action runs, and stopping immediately restarts the run.
             ? <button key="stop" type="button" class="stop-button" onClick={e => { e.preventDefault(); stop(); }}>■ Zastavit <span>{elapsed.toFixed(1)} s</span></button>
-            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(inputError)}>Spočítat rozložení <span aria-hidden="true">↗</span></button>}
+            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(inputError)}>Vytvořit polohový plán <span aria-hidden="true">↗</span></button>}
             <p>{busy ? 'Průběžně zobrazujeme nejlepší nalezený výsledek.' : `Hledání až ${settings.timeMs / 1000} s na každý materiál.`}</p></div>
         </form>
-        <section class="results" ref={resultsSection} aria-label="Výsledky rozložení">
-          <div class="results-heading"><h2>Vaše rozložení</h2><span class="muted small">{snapshot ? `Počet materiálů: ${snapshot.jobs.length}` : 'Připraveno na první střih'}</span></div>
+        <section class="results" ref={resultsSection} aria-label="Výsledky: polohový plán">
+          <div class="results-heading"><h2>Váš polohový plán</h2><span class="muted small">{snapshot ? `Počet materiálů: ${snapshot.jobs.length}` : 'Připraveno na první střih'}</span></div>
+          <p class="muted small">Polohový plán – rozmístění dílů střihu na látce.</p>
           {status && <div class={`run-status ${busy ? 'running' : ''}`} role="status"><span class="status-dot" />{status}{busy && <span class="elapsed">{elapsed.toFixed(1)} s</span>}</div>}
-          {stale && <div class="notice warning">Zakázka nebo nastavení se změnily. Zobrazené výsledky patří k předchozímu výpočtu; spusťte nový.</div>}
+          {stale && <div class="notice warning">Seznam Co šiju nebo nastavení se změnily. Zobrazené výsledky patří k předchozímu výpočtu; spusťte nový.</div>}
           {(snapshot?.notes ?? prepared.data.notes).length > 0 && <details class="notes" open><summary>Poznámky ke stříhání</summary>
             <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={note}>{note}</li>)}</ul></details>}
           {!snapshot ? <EmptyLayout /> : snapshot.jobs.map(job => Object.hasOwn(results, job.material)

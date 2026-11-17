@@ -8,7 +8,7 @@ interface OffsetAdapter {
 }
 
 export function inflatePaths(paths: Paths64, delta: number): Paths64 {
-  if (delta < 0) throw new Error('Švová záložka nesmí být záporná.');
+  if (delta < 0) throw new Error('Přídavek na švy nesmí být záporný.');
   const engine = new ClipperOffset(2);
   // clipper2-js 1.2.4 passes the previous index by value and never updates it
   // in offsetPolygon. Adapt this instance only; keep its joins and union cleanup.

@@ -2,13 +2,13 @@ import type { PageLayout, PagePlacement, PdfDoc, PdfPath, PdfText } from './type
 import { seamMatches, matchPages } from './match';
 
 export function validateLayout(doc: PdfDoc, layout: PageLayout): void {
-  if (layout.step.length !== 2 || layout.step.some(n => !Number.isFinite(n) || n <= 0)) throw new Error('Krok dlaždic musí být kladné číslo.');
+  if (layout.step.length !== 2 || layout.step.some(n => !Number.isFinite(n) || n <= 0)) throw new Error('Krok stránek musí být kladné číslo.');
   if (!layout.blocks.length) throw new Error('Přidejte alespoň jeden blok.');
   const available = new Set(doc.pages.map(p => p.index)), used = new Set<number>();
   for (const block of layout.blocks) {
     const [first, last] = block.pages;
     if (!Number.isInteger(first) || !Number.isInteger(last) || first > last || !available.has(first) || !available.has(last)) throw new Error('Zadejte platný rozsah stránek.');
-    if (!block.rows.length || block.rows.some(n => !Number.isInteger(n) || n <= 0) || block.rows.reduce((a, b) => a + b, 0) !== last - first + 1) throw new Error('Součet dlaždic v řádcích musí odpovídat počtu stránek bloku.');
+    if (!block.rows.length || block.rows.some(n => !Number.isInteger(n) || n <= 0) || block.rows.reduce((a, b) => a + b, 0) !== last - first + 1) throw new Error('Součet stránek v řádcích musí odpovídat počtu stránek bloku.');
     for (let p = first; p <= last; p++) {
       if (!available.has(p) || used.has(p)) throw new Error('Stránka chybí nebo se opakuje ve více blocích.');
       used.add(p);

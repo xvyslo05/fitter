@@ -61,7 +61,7 @@ function point(value: unknown, path: string): Pt {
   return [number(v[0], path), number(v[1], path)];
 }
 function seam(value: unknown, path: string): SeamAllowance {
-  if (!['included', 'none', 'mixed', 'unknown'].includes(value as string)) fail(path, 'neplatný údaj o švové záložce.');
+  if (!['included', 'none', 'mixed', 'unknown'].includes(value as string)) fail(path, 'neplatný údaj o přídavku na švy.');
   return value as SeamAllowance;
 }
 function optionalString(value: unknown, path: string): string | undefined {
@@ -77,16 +77,16 @@ function size(value: unknown, path: string): PieceSize {
   const result: PieceSize = { outline, bbox: bounds, area: number(v.area, `${path}.area`, true) };
   if (v.fold !== undefined) {
     const f = array(v.fold, `${path}.fold`);
-    if (f.length !== 2) fail(path, 'lom musí mít dva krajní body.');
+    if (f.length !== 2) fail(path, 'přehyb musí mít dva krajní body.');
     const a = point(f[0], path), b = point(f[1], path);
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (length < 1e-6) fail(path, 'lom má nulovou délku.');
+    if (length < 1e-6) fail(path, 'přehyb má nulovou délku.');
     const sides = outline.map(([x, y]) => ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) / length);
     const onBoundary = (p: Pt) => outline.some((v, i) => pointSegmentDistance(p, v, outline[(i + 1) % outline.length]) <= FOLD_TOLERANCE);
     // The whole fold edge, not just its endpoints, must follow the outline.
     const alongFold = Array.from({ length: 33 }, (_, i): Pt => [a[0] + (b[0] - a[0]) * i / 32, a[1] + (b[1] - a[1]) * i / 32]);
     if ((sides.some(s => s > FOLD_TOLERANCE) && sides.some(s => s < -FOLD_TOLERANCE)) || !alongFold.every(onBoundary))
-      fail(path, 'lom musí ležet na rovné hraně obrysu (tolerance 0,2 cm) a díl musí být na jedné straně.');
+      fail(path, 'přehyb musí ležet na rovné hraně obrysu (tolerance 0,2 cm) a díl musí být na jedné straně.');
     result.fold = [a, b];
   }
   return result;
@@ -119,7 +119,7 @@ export function parsePatternFile(json: unknown): PatternFile {
   return {
     format: 'fitter-pattern@1', id: key(v.id, 'ID střihu'), name: string(v.name, 'Název střihu'),
     author: v.author === null ? null : optionalString(v.author, 'Autor'), source: optionalString(v.source, 'Zdroj'),
-    seamAllowance: seam(v.seamAllowance, 'Švová záložka'),
+    seamAllowance: seam(v.seamAllowance, 'Přídavek na švy'),
     notes: v.notes === null ? null : optionalString(v.notes, 'Poznámky'), sizes, pieces,
   };
 }

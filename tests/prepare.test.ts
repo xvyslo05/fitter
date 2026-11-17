@@ -142,7 +142,7 @@ describe('prepare', () => {
     pattern.pieces[0].sizes.uni.fold = [[0, 0], [18, 0]];
     const output = prepare([pattern], [line], { 'Vnější látka': { ...fabric, folded: true } }, settings);
     expect(output.materials['Vnější látka'][0].foldEdge).toBe(false);
-    expect(output.notes.join(' ')).toContain('lom není svislý');
+    expect(output.notes.join(' ')).toContain('přehyb není svislý');
   });
   it('honors per-piece seam status, explicit pattern toggle and rotation override', () => {
     const { pattern, line, settings } = setup();
@@ -155,7 +155,7 @@ describe('prepare', () => {
     const handle = output.materials['Vnější látka'].find(p => p.label.includes('Ucho'))!;
     expect(bbox(handle.polygon).width).toBeCloseTo(9);
     expect(handle.rotation).toBe('none');
-    expect(output.notes).toEqual([`${pattern.name}: švová záložka není jednoznačná; ověřte ji podle střihu.`]);
+    expect(output.notes).toEqual([`${pattern.name}: přídavek na švy není jednoznačný; ověřte ho podle střihu.`]);
     settings.addSeam[pattern.id] = false;
     output = prepare([pattern], [line], {}, settings);
     expect(bbox(output.materials['Vnější látka'].find(p => p.label.includes('Ucho'))!.polygon).width).toBeCloseTo(7);
@@ -169,7 +169,7 @@ describe('prepare', () => {
     expect(output.materials['__proto__']).toHaveLength(2);
     expect(output.materials['__proto__'][0].rotation).toBe('180');
     expect(bbox(output.materials['__proto__'][0].polygon).width).toBeCloseTo(9);
-    expect(() => prepare([pattern], [line], {}, { ...settings, seamAmount: NaN })).toThrow(/záložka/);
+    expect(() => prepare([pattern], [line], {}, { ...settings, seamAmount: NaN })).toThrow(/Přídavek na švy/);
   });
   it('directional fabric forces rotation none for its material only, overriding defaults and overrides', () => {
     const { pattern, line, settings } = setup(); settings.rotation = '90';

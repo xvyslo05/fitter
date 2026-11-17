@@ -13,6 +13,6 @@ describe('layout orientation against the pattern', () => {
     expect(orientationText({ mirrored: false, turn: 0 }, 'single')).toBe('Jako ve střihu');
     expect(orientationText({ mirrored: true, turn: 180 }, 'single')).toBe('Zrcadlově proti střihu, otočeno o 180°');
     expect(orientationText({ mirrored: false, turn: 90 }, 'folded')).toBe('Jako ve střihu, otočeno o 90° · spodní vrstva dá zrcadlový díl');
-    expect(orientationText({ mirrored: true, turn: 180 }, 'fold')).toBe('Zrcadlově proti střihu, otočeno o 180° · na lomu');
+    expect(orientationText({ mirrored: true, turn: 180 }, 'fold')).toBe('Zrcadlově proti střihu, otočeno o 180° · na přehybu');
   });
 });

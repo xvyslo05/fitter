@@ -22,18 +22,18 @@ export function OrderEditor({ line, patterns, settings, onChange, onRemove, onSe
         {pattern.sizes.map(size => <option key={size} value={size}>{size}</option>)}
       </select></label><NumberField label="Množství" suffix="×" value={line.quantity} min={1} max={100} step={1} onChange={quantity => onChange({ ...line, quantity })} /></div>
       <label class="check"><input type="checkbox" checked={own(settings.addSeam, pattern.id) ?? pattern.seamAllowance === 'none'}
-        onChange={e => onSettings({ ...settings, addSeam: { ...settings.addSeam, [pattern.id]: e.currentTarget.checked } })} />Přidat švovou záložku</label>
+        onChange={e => onSettings({ ...settings, addSeam: { ...settings.addSeam, [pattern.id]: e.currentTarget.checked } })} />Přidat přídavek na švy</label>
       {(pattern.seamAllowance === 'unknown' || pattern.seamAllowance === 'mixed' || pattern.pieces.some(p => p.seamAllowance === 'unknown' || p.seamAllowance === 'mixed')) &&
-        <p class="warning small">Záložka není jednoznačná. Ověřte údaje střihu; automaticky se k nejasným dílům nepřidává.</p>}
+        <p class="warning small">Přídavek na švy není jednoznačný. Ověřte údaje střihu; automaticky se k nejasným dílům nepřidává.</p>}
       <details class="piece-settings"><summary>Díly a otáčení <span>{selected.size} vybráno</span></summary>
-        <p class="muted small">Otáčení o 90° mění směr vlákna. Na lomu se díl pouze obrací podél lomu.</p>
-        <p class="muted small">Výchozí záložka respektuje údaje každého dílu. Přepínač platí pro celý střih ve všech řádcích.</p>
+        <p class="muted small">Otáčení o 90° mění směr vlákna. Na přehybu se díl pouze obrací podél přehybu.</p>
+        <p class="muted small">Výchozí přídavek na švy respektuje údaje každého dílu. Přepínač platí pro celý střih ve všech řádcích.</p>
         {own(settings.addSeam, pattern.id) !== undefined && <button type="button" class="text-button" onClick={() => {
           const addSeam = { ...settings.addSeam }; delete addSeam[pattern.id]; onSettings({ ...settings, addSeam });
-        }}>Obnovit záložky podle střihu</button>}
+        }}>Obnovit přídavky na švy podle střihu</button>}
         {[...new Set(pattern.pieces.filter(p => p.variantGroup && p.sizes[line.size]).map(p => p.variantGroup!))].map(group => {
           const members = pattern.pieces.filter(p => p.variantGroup === group && p.sizes[line.size]);
-          return <label class="field" key={group}><span>Varianta · {group}</span>
+          return <label class="field" key={group}><span>{group}</span>
             <select value={variantChoice(pattern, line, group) ?? ''}
               onChange={e => onChange({ ...line, include: chooseVariant(pattern, line, group, e.currentTarget.value) })}>
               {[...new Set(members.map(variantLabel))].map(label => <option key={label} value={label}>{label}</option>)}

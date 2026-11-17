@@ -74,7 +74,7 @@ export function prepare(
   patterns: PatternFile[], order: OrderLine[], fabrics: Record<string, Fabric>, settings: Settings,
 ): PreparedOrder {
   if (!Number.isFinite(settings.seamAmount) || settings.seamAmount < 0 || settings.seamAmount > 10)
-    throw new Error('Švová záložka musí být v rozmezí 0–10 cm.');
+    throw new Error('Přídavek na švy musí být v rozmezí 0–10 cm.');
   const materials: Record<string, NestPiece[]> = Object.create(null);
   const notes = new Set<string>(), mirroredKeys: string[] = [];
   // Surplus mirrored copies per pattern/piece/material, summed over order lines.
@@ -82,18 +82,18 @@ export function prepare(
   let total = 0;
   for (const line of order) {
     const pattern = patterns.find(p => p.id === line.patternId);
-    if (!pattern) { notes.add('Střih ze zakázky není v knihovně. Importujte jej znovu.'); continue; }
+    if (!pattern) { notes.add('Vybraný střih není v knihovně. Importujte jej znovu.'); continue; }
     if (!pattern.sizes.includes(line.size)) throw new Error(`${pattern.name}: vyberte platnou velikost.`);
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 100)
       throw new Error('Množství v zakázce musí být celé číslo 1–100.');
     for (const piece of includedPieces(pattern, line)) {
       const shape = piece.sizes[line.size];
       const aligned = shape.fold ? alignFoldOutline(shape.outline, shape.fold) : { polygon: shape.outline, adjusted: false };
-      if (aligned.adjusted) notes.add(`${pattern.name}: obrys u lomu byl srovnán s vyznačenou hranou (tolerance 0,2 cm).`);
+      if (aligned.adjusted) notes.add(`${pattern.name}: obrys u přehybu byl srovnán s vyznačenou hranou (tolerance 0,2 cm).`);
       const allowance = piece.seamAllowance ?? pattern.seamAllowance;
       const addSeam = own(settings.addSeam, pattern.id) ?? allowance === 'none';
       if (allowance === 'unknown' || allowance === 'mixed')
-        notes.add(`${pattern.name}: švová záložka není jednoznačná; ověřte ji podle střihu.`);
+        notes.add(`${pattern.name}: přídavek na švy není jednoznačný; ověřte ho podle střihu.`);
       const cuts = new Map<string, number>();
       for (const cut of piece.cut) cuts.set(cut.material, (cuts.get(cut.material) ?? 0) + cut.count);
       for (const [material, count] of cuts) {
@@ -103,7 +103,7 @@ export function prepare(
           ? (keepFold ? orientFold(aligned.polygon, shape.fold) : unfold(aligned.polygon, shape.fold))
           : normalize(aligned.polygon);
         if (fabric.folded && shape.fold && !keepFold)
-          notes.add(`${pattern.name} · ${piece.name}: lom není svislý (±1°); díl je rozvinutý a stříhá se ve dvou vrstvách.`);
+          notes.add(`${pattern.name} · ${piece.name}: přehyb není svislý (±1°); díl je rozvinutý a stříhá se ve dvou vrstvách.`);
         if (addSeam && settings.seamAmount > 0) {
           polygon = offset(polygon, settings.seamAmount);
           if (keepFold) polygon = clipAtFold(polygon);
@@ -121,7 +121,7 @@ export function prepare(
         }
         materials[material] ??= [];
         for (let garment = 0; garment < line.quantity; garment++) for (let j = 0; j < placements; j++) {
-          if (++total > 500) throw new Error('Zakázka je příliš velká. Rozdělte ji na části do 500 umístění.');
+          if (++total > 500) throw new Error('Je toho moc najednou. Rozdělte šití na části do 500 dílů.');
           const i = garment * placements + j;
           const key = JSON.stringify([line.id, piece.id, material, i]);
           const mirrored = !fabric.folded && settings.mirroredPairs && j % 2 === 1;

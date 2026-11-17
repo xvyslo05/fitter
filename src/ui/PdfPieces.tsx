@@ -64,7 +64,7 @@ function Thumbnail({ result, candidate, draft, edges, folds, picker, onPick }: {
   const taps = picker ? picker.cells.filter(c => picker.owners.get(c.id) === c.id) : [];
   const toggleKey = (owner: number) => (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker!.onToggle(owner); } };
   return <svg class={`pdf-thumb${edges.length && !picker ? ' pickable' : ''}`} viewBox={view} role={picker ? 'group' : 'img'} onClick={pick}
-    aria-label={`Náhled kandidáta ${candidate.id}: ${Object.keys(candidate.sizes).length} velikostí, ${fold ? 'lom vyznačen' : 'bez lomu'}, vlákno ${degrees(draft.grainAngle)}°`}>
+    aria-label={`Náhled dílu ${candidate.id}: ${Object.keys(candidate.sizes).length} velikostí, ${fold ? 'přehyb vyznačen' : 'bez přehybu'}, vlákno ${degrees(draft.grainAngle)}°`}>
     {picker && <defs><pattern id={hatchId} patternUnits="userSpaceOnUse" width={hatch} height={hatch} patternTransform="rotate(45)">
       <rect width={hatch} height={hatch} class="pdf-hatch-bg" /><line x1="0" y1="0" x2="0" y2={hatch} class="pdf-hatch-line" vector-effect="non-scaling-stroke" /></pattern></defs>}
     {picker ? picker.cells.map(cell => {
@@ -127,13 +127,13 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
     }
     return lost;
   }, [candidate, draft.variants, draft.foldEdge, draft.allSizes, edges, k]);
-  return <article class={`pdf-piece${draft.include ? '' : ' excluded'}`} aria-label={`Kandidát ${candidate.id}`}>
-    <div class="pdf-piece-heading"><h4>Kandidát {candidate.id}</h4>
+  return <article class={`pdf-piece${draft.include ? '' : ' excluded'}`} aria-label={`Díl ${candidate.id}`}>
+    <div class="pdf-piece-heading"><h4>Díl {candidate.id}</h4>
       <label class="check"><input type="checkbox" checked={draft.include} onChange={e => onChange({ include: e.currentTarget.checked })} />Použít</label></div>
     <Thumbnail result={result} candidate={candidate} draft={draft} edges={edges} folds={folds} picker={picker} onPick={foldEdge => { if (draft.include) onChange({ foldEdge }); }} />
     <fieldset class="pdf-piece-fields" disabled={!draft.include}>
       <label class="field"><span>Název</span><input type="text" value={draft.name} maxLength={120} onInput={e => onChange({ name: e.currentTarget.value })} /></label>
-      <div class="pdf-cuts" role="group" aria-label={`Počty · kandidát ${candidate.id}`}><span class="pdf-label">Počty</span>
+      <div class="pdf-cuts" role="group" aria-label={`Počty · díl ${candidate.id}`}><span class="pdf-label">Počty</span>
         {draft.cut.map((c, i) => <div class="pdf-cut-row" key={i}>
           <input type="text" aria-label={`Materiál ${i + 1}`} value={c.material} placeholder="např. podšívka" maxLength={80} onInput={e => setCut(i, { material: e.currentTarget.value })} />
           <span class="input-unit"><input type="number" aria-label={`Počet kusů · materiál ${i + 1}`} min={1} max={1000} step={1}
@@ -146,12 +146,12 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
       </div>
       <label class="check"><input type="checkbox" checked={draft.foldEdge !== null} disabled={!edges.length}
         onChange={e => onChange({ foldEdge: e.currentTarget.checked ? longest : null })} />
-        <span>Lom (stříhá se na přeložené látce)<small>{edges.length ? 'Jinou hranu vyberete kliknutím u rovné hrany v náhledu.' : 'Díl nemá rovnou hranu alespoň 5 cm.'}</small></span></label>
-      {draft.foldEdge !== null && <label class="field"><span>Hrana lomu</span><select value={draft.foldEdge} onChange={e => onChange({ foldEdge: Number(e.currentTarget.value) })}>
+        <span>Přehyb (stříhá se na přeložené látce)<small>{edges.length ? 'Jinou hranu vyberete kliknutím u rovné hrany v náhledu.' : 'Díl nemá rovnou hranu alespoň 5 cm.'}</small></span></label>
+      {draft.foldEdge !== null && <label class="field"><span>Hrana přehybu</span><select value={draft.foldEdge} onChange={e => onChange({ foldEdge: Number(e.currentTarget.value) })}>
         {edges.map((e, j) => <option key={j} value={j}>Hrana {j + 1} · {(e.length * k).toLocaleString('cs', { maximumFractionDigits: 1 })} cm</option>)}
       </select></label>}
-      {missing.length > 0 && <p class="warning small">Lom se nenašel ve velikosti {missing.join(', ')}. Tam se díl uloží bez lomu.</p>}
-      <div class="pdf-grain" role="group" aria-label={`Směr vlákna · kandidát ${candidate.id}`}><span class="pdf-label">Směr vlákna</span>
+      {missing.length > 0 && <p class="warning small">Přehyb se nenašel ve velikosti {missing.join(', ')}. Tam se díl uloží bez přehybu.</p>}
+      <div class="pdf-grain" role="group" aria-label={`Směr vlákna · díl ${candidate.id}`}><span class="pdf-label">Směr vlákna</span>
         <div class="pdf-grain-controls">
           <button type="button" class="secondary" aria-pressed={draft.grainAngle === auto.grainAngle} onClick={() => onChange({ grainAngle: auto.grainAngle })}>Podle čáry</button>
           <button type="button" class="secondary" aria-label="Otočit směr vlákna o 90° doleva" onClick={() => turn(-90)}>↺ 90°</button>
@@ -168,7 +168,7 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
         <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
       {!split && tappable.length > 1 && <div class="pdf-split-offer"><p class="small">Tento díl má více částí.</p>
         <button type="button" class="secondary" onClick={() => { setActive(0); setVariants([{ label: '', cells: selection(refCells!.map(c => c.id)) }]); }}>Rozdělit na možnosti</button></div>}
-      {split && <div class="pdf-variants" role="group" aria-label={`Možnosti · kandidát ${candidate.id}`}><span class="pdf-label">Možnosti</span>
+      {split && <div class="pdf-variants" role="group" aria-label={`Možnosti · díl ${candidate.id}`}><span class="pdf-label">Možnosti</span>
         <p class="small muted">Vyberte možnost a klepněte na části v náhledu, které k ní patří (vyplněné). Ostatní části jsou šrafované. Slabé obrysy jsou výsledek v dalších velikostech.</p>
         {draft.variants.map((v, i) => <div class="pdf-variant-row" key={i}>
           <button type="button" class="pdf-variant-pick" aria-pressed={i === activeIndex} aria-label={`Upravit části možnosti ${v.label.trim() || i + 1}`} onClick={() => setActive(i)}>
@@ -181,12 +181,12 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
         <div class="pdf-variant-actions">
           <button type="button" class="text-button" onClick={() => { setVariants([...draft.variants, { label: '', cells: {} }]); setActive(draft.variants.length); }}>+ Přidat možnost</button>
           <button type="button" class="text-button" onClick={() => setVariants([])}>Zrušit rozdělení</button></div>
-        {foldLost.length > 0 && <p class="warning small">Lom se nenašel u možnosti: {foldLost.join('; ')}. Tam se díl uloží bez lomu.</p>}
+        {foldLost.length > 0 && <p class="warning small">Přehyb se nenašel u možnosti: {foldLost.join('; ')}. Tam se díl uloží bez přehybu.</p>}
       </div>}
       <details class="pdf-advanced" open={advanced}><summary>Upřesnit</summary>
         <div class="field-row"><label class="field"><span>Možnosti dílu</span><input type="text" value={draft.variantGroup} placeholder={split ? draft.name || 'např. Kapsa' : 'např. Kapsa'} maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
-          {!split && <label class="field"><span>Varianta</span><input type="text" value={draft.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label>}</div>
-        <p class="small muted">{split ? 'Název skupiny, pod kterou se možnosti objeví v zakázce; prázdný = název dílu.' : 'Spojí samostatné kandidáty do jedné skupiny možností: stejný název skupiny a u každého jiná varianta.'}</p>
+          {!split && <label class="field"><span>Možnost</span><input type="text" value={draft.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label>}</div>
+        <p class="small muted">{split ? 'Název, pod kterým se možnosti dílu objeví v seznamu Co šiju; prázdný = název dílu.' : 'Spojí samostatné díly do jedněch možností dílu: stejný název a u každého jiná možnost.'}</p>
       </details>
       {problems.map(p => <p class="warning small" key={p}>{p}</p>)}
     </fieldset>
@@ -234,7 +234,7 @@ function RectangleCard({ index, rectangle, onChange, onRemove }: {
       <label class="check"><input type="checkbox" checked={rectangle.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
         <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
       <div class="field-row"><label class="field"><span>Možnosti dílu</span><input type="text" value={rectangle.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
-        <label class="field"><span>Varianta</span><input type="text" value={rectangle.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label></div>
+        <label class="field"><span>Možnost</span><input type="text" value={rectangle.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label></div>
       {problems.map(p => <p class="warning small" key={p}>{p}</p>)}
     </div>
   </article>;
@@ -246,8 +246,8 @@ export function Pieces({ result, drafts, suggested, rectangles, textLayer, onCha
 }) {
   const included = drafts.filter(d => d.include).length, total = included + rectangles.length;
   return <div class="pdf-pieces">
-    {!textLayer && <p class="warning">PDF nemá textovou vrstvu (písmo je převedené na křivky) – názvy, počty a lom doplňte podle náhledu.</p>}
-    <p class="small muted">Návrhy vycházejí z popisků a čar v PDF. Zkontrolujte název, počty, lom a směr vlákna. Barevné obrysy jsou další velikosti, přerušované čáry rovné hrany vhodné pro lom, červeně je lom, modře směr vlákna. Použito dílů: {total} z {drafts.length + rectangles.length}.</p>
+    {!textLayer && <p class="warning">PDF nemá textovou vrstvu (písmo je převedené na křivky) – názvy, počty a přehyb doplňte podle náhledu.</p>}
+    <p class="small muted">Návrhy vycházejí z popisků a čar v PDF. Zkontrolujte název, počty, přehyb a směr vlákna. Barevné obrysy jsou další velikosti, přerušované čáry rovné hrany vhodné pro přehyb, červeně je přehyb, modře směr vlákna. Použito dílů: {total} z {drafts.length + rectangles.length}.</p>
     {!total && <p class="warning" role="alert">Vyberte alespoň jeden díl.</p>}
     <div class="pdf-piece-grid">{drafts.map((draft, i) => <PieceCard key={draft.candidateId} result={result} draft={draft} auto={suggested[i]}
       candidate={result.candidates.find(c => c.id === draft.candidateId)!} onChange={patch => onChange(i, patch)} />)}

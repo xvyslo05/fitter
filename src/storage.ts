@@ -86,6 +86,6 @@ export function parseBackup(json: unknown): ParsedBackup {
   if (workspace) {
     const ids = new Set([demo.id, ...patterns.map(p => p.id)]);
     workspace = { ...workspace, order: workspace.order.filter(line => ids.has(line.patternId)) };
-  } else errors.push('Zakázku a nastavení se nepodařilo obnovit.');
+  } else errors.push('Seznam Co šiju a nastavení se nepodařilo obnovit.');
   return { created: typeof json.created === 'string' ? json.created : '', patterns, workspace, errors };
 }

@@ -57,7 +57,7 @@ const SIZE_TOKEN = /^(?:\d+(?:[.,]\d+)?|x{0,3}[sl]|m|\d?xl|x{1,4}l|uni)$/i;
 const STOP = /^(?:(?:vy|na|u)?st[řr][ií]h\p{L}*|(?:zu)?schn\p{L}*|cut\p{L}*|couper|the|and|und|aus|from|each|jeweils|mal|times|pairs?|páry?|kus\p{L}*|stück|stk|gegengleich|spiegelverkehrt|zrcadl\p{L}*|mirror\p{L}*|revers\p{L}*|fois)$/iu;
 // Printed Czech material words in any case form → dictionary form; other words stay as printed (lower case).
 const MATERIALS: [RegExp, string][] = [[/^podšív/, 'podšívka'], [/^vnějš/, 'vnější'], [/^vnitřn/, 'vnitřní'], [/^hlavn/, 'hlavní'],
-  [/^vlizel/, 'vlizelín'], [/^výztu/, 'výztuž'], [/^kontrastn/, 'kontrastní'], [/^lát[kc]/, 'látka']];
+  [/^vlizel/, 'vlizelín'], [/^výztu/, 'výztuha'], [/^kontrastn/, 'kontrastní'], [/^lát[kc]/, 'látka']];
 
 export const openRing = (ring: Pt[]): Pt[] => ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1] ? ring.slice(0, -1) : ring;
 const distance = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);

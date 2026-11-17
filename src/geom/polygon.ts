@@ -47,7 +47,7 @@ const fromPaths = (p: Paths64): Pt[][] => Array.from(p, ring => Array.from(ring,
 function outer(result: Paths64): Pt[] {
   const rings = fromPaths(result.map(ring => Clipper.trimCollinear(ring))).sort((a, b) => area(b) - area(a));
   if (!rings.length) throw new Error('Geometrie dílu je po úpravě prázdná.');
-  if (rings.filter(p => signedArea(p) > 0).length > 1) throw new Error('Úprava vytvořila oddělené obrysy. Zkontrolujte hranu lomu.');
+  if (rings.filter(p => signedArea(p) > 0).length > 1) throw new Error('Úprava vytvořila oddělené obrysy. Zkontrolujte hranu přehybu.');
   // The file format describes one outer cutting ring, without holes.
   return rings[0];
 }
@@ -73,7 +73,7 @@ export function intersectionArea(a: Pt[], b: Pt[]): number {
 }
 export function mirrorAcross(p: Pt[], [a, b]: [Pt, Pt]): Pt[] {
   const dx = b[0] - a[0], dy = b[1] - a[1], length2 = dx * dx + dy * dy;
-  if (length2 < EPS) throw new Error('Hrana lomu má nulovou délku.');
+  if (length2 < EPS) throw new Error('Hrana přehybu má nulovou délku.');
   return p.map(([x, y]) => {
     const t = ((x - a[0]) * dx + (y - a[1]) * dy) / length2;
     return [2 * (a[0] + t * dx) - x, 2 * (a[1] + t * dy) - y];
@@ -92,7 +92,7 @@ export function alignFoldOutline(p: Pt[], [a, b]: [Pt, Pt]): { polygon: Pt[]; ad
     ((x - a[0]) * dx + (y - a[1]) * dy) / length]);
   // Union removes coincident or backtracking segments introduced by snapping.
   const local = outer(Clipper.Union(paths([snapped]), undefined, FillRule.NonZero));
-  if (!isSimple(local) || area(local) < EPS) throw new Error('Obrys u lomu nelze bezpečně srovnat. Zkontrolujte vstupní střih.');
+  if (!isSimple(local) || area(local) < EPS) throw new Error('Obrys u přehybu nelze bezpečně srovnat. Zkontrolujte vstupní střih.');
   const polygon: Pt[] = local.map(([x, y]) => [a[0] + (y * dx - x * dy) / length, a[1] + (y * dy + x * dx) / length]);
   return { polygon, adjusted: true };
 }

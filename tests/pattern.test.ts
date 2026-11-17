@@ -14,7 +14,7 @@ describe('parsePatternFile', () => {
     expect(parsed.author).toBeNull();
   });
   it.each([null, [], {}, { ...demo, format: 'other' }, { ...demo, seamAllowance: 'yes' }, { ...demo, sizes: ['uni', 'uni'] }])('rejects invalid top-level input', input => {
-    expect(() => parsePatternFile(input)).toThrow(/Střih|Švová|Velikosti/);
+    expect(() => parsePatternFile(input)).toThrow(/Střih|Přídavek na švy|Velikosti/);
   });
   it('rejects invalid geometry, counts, folds, duplicate IDs and missing sizes', () => {
     const mutations = [
@@ -35,7 +35,7 @@ describe('parsePatternFile', () => {
     // A 2 cm notch into the piece in the middle of the fold edge: endpoints still lie on the outline.
     input.pieces[0].sizes.uni.outline = [[0, 0], [10, 0], [10, 20], [0, 20], [2, 10]];
     input.pieces[0].sizes.uni.fold = [[0, 0], [0, 20]];
-    expect(() => parsePatternFile(input)).toThrow(/lom musí ležet/);
+    expect(() => parsePatternFile(input)).toThrow(/přehyb musí ležet/);
   });
   it('rejects the reserved key "__proto__" as pattern, piece, size or material name', () => {
     const mutations = [
