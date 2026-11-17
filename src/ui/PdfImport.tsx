@@ -3,7 +3,7 @@ import { detectLayout } from '../pdf/layout';
 import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/place';
 import { contentPages } from '../pdf/match';
 import { styleKeyOf, styleLegend } from '../pdf/styles';
-import { sizeRole, withoutLettering } from '../pdf/trace';
+import { dominantStyleKey, sheetProblem, sizeRole, withoutLettering } from '../pdf/trace';
 import { detectScale, parseDecimal, resolveScale, CM_PER_PT } from '../pdf/scale';
 import type { ScaleAnswer } from '../pdf/scale';
 import { suggestPieces } from '../pdf/pieces';
@@ -343,11 +343,14 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   const [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
   const [excludeScaleMarks, setExcludeScaleMarks] = useState(true);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  // Set when no style wins the suggestion and the one dominant style traces as overlapping pieces.
+  const [probeProblem, setProbeProblem] = useState(false);
   // Suggest "uni" for the style that encloses clearly the most area (coarse trace in the worker).
   // The user's own entries always win over a late suggestion.
   useEffect(() => {
     let worker: Worker | undefined, cancelled = false;
-    setAssignments({}); setSuggesting(true);
+    setAssignments({}); setSuggesting(true); setProbeProblem(false);
+    let probe: Worker | undefined;
     try {
       worker = new Worker(new URL('../pdf/trace.worker.ts', import.meta.url), { type: 'module' });
       worker.onmessage = (event: MessageEvent<TraceResponse>) => {
@@ -355,13 +358,27 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
         if (!cancelled && 'suggestion' in data) setAssignments(prev => Object.values(prev).some(v => v.trim()) ? prev : data.suggestion);
         if (!cancelled) setSuggesting(false);
         worker?.terminate();
+        // No winner: trace the one style that holds most of the line length once at 1 mm and look for overlapping pieces.
+        const key = !cancelled && 'suggestion' in data && !Object.keys(data.suggestion).length ? dominantStyleKey(sheet.content) : undefined;
+        if (!key) return;
+        try {
+          probe = new Worker(new URL('../pdf/trace.worker.ts', import.meta.url), { type: 'module' });
+          probe.onmessage = (e: MessageEvent<TraceResponse>) => {
+            if (!cancelled && 'result' in e.data) setProbeProblem(sheetProblem(e.data.result) !== null);
+            probe?.terminate();
+          };
+          probe.onerror = () => probe?.terminate();
+          const request: TraceRequest = { paths: sheet.content, texts: sheet.texts, assignments: { [key]: 'uni' }, scale: detected,
+            options: { cmPerPt: detected.cmPerPt, gapMm: 1, resolutionMm: 1, minAreaCm2: 15 }, excludeScaleMarks: true };
+          probe.postMessage(request);
+        } catch { /* the probe is optional */ }
       };
       worker.onerror = () => { if (!cancelled) setSuggesting(false); worker?.terminate(); };
       // Page furniture (frames, marks repeated on every page) must not win the default "uni" guess.
       const request: SuggestRequest = { suggest: true, paths: sheet.content, texts: sheet.texts, scale: detected };
       worker.postMessage(request);
     } catch { setSuggesting(false); }
-    return () => { cancelled = true; worker?.terminate(); };
+    return () => { cancelled = true; worker?.terminate(); probe?.terminate(); };
   }, [sheet, detected]);
   const settings = useMemo(() => {
     try {
@@ -423,6 +440,8 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
       <label class="field"><span>Krok rastru (mm)</span><input type="number" min="0.25" max="1" step="0.25" value={resolution} onInput={e => setResolution(e.currentTarget.value)} /></label>
       <label class="field"><span>Min. plocha (cm²)</span><input type="number" min="0" step="1" value={minArea} onInput={e => setMinArea(e.currentTarget.value)} /></label>
     </div>
+    {(result ? sheetProblem(result) : probeProblem) && <div class="warning" role="alert"><p>Na tomto archu jsou díly všech velikostí nakreslené přes sebe stejnou čarou. Takový střih zatím neumíme načíst.</p>
+      <p class="small">Zkuste verzi střihu s vrstvami nebo s každou velikostí zvlášť, pokud ji prodejce nabízí. Případně jste jedné velikosti přiřadili čáry více velikostí. Můžete také zkusit vybrat jediný díl.</p></div>}
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>

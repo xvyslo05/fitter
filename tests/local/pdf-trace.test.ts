@@ -7,14 +7,14 @@ import { assemblePaths, assembleTexts, placePages } from '../../src/pdf/place';
 import { detectScale } from '../../src/pdf/scale';
 import { styleKeyOf, styleLegend } from '../../src/pdf/styles';
 import { suggestPieces } from '../../src/pdf/pieces';
-import { suggestAssignments, traceSizes } from '../../src/pdf/trace';
+import { dominantStyleKey, sheetProblem, suggestAssignments, traceSizes } from '../../src/pdf/trace';
 import { contentPages } from '../../src/pdf/match';
 import { area, isSimple } from '../../src/geom/polygon';
 import type { Pt, StyleEntry } from '../../src/pdf/types';
 
 const directory = resolve('tools/pattern-extract/configs');
 const present = ['patterns', 'library', directory].every(p => existsSync(resolve(p)));
-interface Filter { width?: [number, number]; color?: number[]; dashes?: string }
+interface Filter { fillBand?: boolean; width?: [number, number]; color?: number[]; dashes?: string }
 interface Library { pieces: { id: string; sizes: Record<string, { outline: Pt[] }> }[] }
 // Raglan pieces that must trace within 1 % of the library area: sleeve, hood, large pocket, body.
 const raglanPieces = ['aermel-lang-saum-190', 'kapuze', 'tasche-gross', 'rueckenteil-190'];
@@ -147,6 +147,37 @@ describe.skipIf(!present)('local PDF tracing acceptance (numbers only)', () => {
         if (id === 'celia') expect(elapsed).toBeLessThan(2000);
       }
     }
+  }, 120000);
+  // Cell counts (3 cm2 and up) per candidate and size; Alexia is the one sheet that must be flagged.
+  it.each(files)('%s sheet problem', async file => {
+    const configPath = resolve(directory, file), config = JSON.parse(readFileSync(configPath, 'utf8')), id: string = config.id;
+    const doc = await readPdf(new Uint8Array(readFileSync(resolve(dirname(configPath), config.pdf))));
+    const scale = detectScale(doc), placements = placePages(doc, detectLayout(doc).layout).placements;
+    const paths = assemblePaths(contentPages(doc), placements), texts = assembleTexts(doc, placements), legend = styleLegend(paths);
+    const options = { cmPerPt: scale.cmPerPt, gapMm: 1, resolutionMm: 0.5, minAreaCm2: 15 };
+    let assignments: Record<string, string>;
+    if (id === 'alexia-kleid') {
+      const key = dominantStyleKey(paths);
+      process.stdout.write(`${id}: dominant style=${key ? 'found' : 'none'}\n`);
+      expect(key).toBeDefined();
+      assignments = { [key!]: 'uni' };
+      // The wizard probes at 1 mm.
+      options.resolutionMm = 1;
+    } else if (id === 'raglan-hoodie-alex') {
+      const sharedKeys = legend.filter(e => matchesStyle(e, { color: [0, 0, 0] }, true)).map(e => e.key);
+      assignments = { ...Object.fromEntries(sharedKeys.map(key => [key, 'uni'])),
+        ...Object.fromEntries(Object.entries(raglan).flatMap(([size, filter]) => legend.filter(e => matchesStyle(e, filter, true)).map(e => [e.key, size]))) };
+    } else {
+      // A style that several sizes share is assigned to all of them.
+      assignments = {};
+      for (const [size, filter] of Object.entries(config.sizes as Record<string, Filter>)) for (const e of legend.filter(e => matchesStyle(e, filter, !!filter.fillBand)))
+        assignments[e.key] = assignments[e.key] ? `${assignments[e.key]},${size}` : size;
+    }
+    const result = traceSizes({ paths, texts, scale, assignments, options });
+    const counts = result.candidates.map(c => Math.max(0, ...Object.values(c.cells ?? {}).map(cells => cells.filter(cell => cell.areaPt2 * scale.cmPerPt ** 2 >= 3).length)));
+    process.stdout.write(`${id}: candidates=${counts.length}; cells>=3cm2 per candidate=${counts.join(',')}; sheetProblem=${sheetProblem(result)}\n`);
+    if (id === 'alexia-kleid') process.stdout.write(`${id}: suggestion=${Object.keys(suggestAssignments(paths, texts, scale)).length ? 'style' : 'none'}\n`);
+    expect(sheetProblem(result)).toBe(id === 'alexia-kleid' ? 'overlapping' : null);
   }, 120000);
   it('covers all six scale configurations', () => { expect(files).toHaveLength(6); });
 });

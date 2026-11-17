@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { area, bbox, isSimple } from '../src/geom/polygon';
 import { styleLegend, styleKeyOf, defaultAssignments } from '../src/pdf/styles';
-import { assignedSizes, sizeRole, suggestAssignments, largestLoop, traceOutlines, traceShapes, traceSizes, withoutLettering } from '../src/pdf/trace';
+import { assignedSizes, sizeRole, suggestAssignments, largestLoop, traceOutlines, dominantStyleKey, sheetProblem, traceShapes, traceSizes, withoutLettering } from '../src/pdf/trace';
 import { groupPieces } from '../src/pdf/group';
 import { suggestPieces } from '../src/pdf/pieces';
 import { assembleTexts } from '../src/pdf/place';
@@ -275,6 +275,29 @@ describe('line bands and simple rings', () => {
       });
       for (const ring of traceOutlines(paths, { ...opts, minAreaCm2: 1, gapMm: 1 + blob % 3 })) expect(isSimple(ring.slice(0, -1))).toBe(true);
     }
+  });
+});
+describe('unsupported sheets', () => {
+  const scale = { cmPerPt: CM_PER_PT, source: 'square' as const, squareCm: 5, measuredPt: pt(5), page: 1 };
+  const rectangle = (x: number, y: number, width: number, height: number) =>
+    testPath([[x, y], [x + width, y], [x + width, y + height], [x, y + height]].map(([a, b]) => [pt(a), pt(b)] as [number, number]), { closed: [true], lineWidth: pt(0.1) });
+  const line = (x0: number, y0: number, x1: number, y1: number) => testPath([[pt(x0), pt(y0)], [pt(x1), pt(y1)]], { lineWidth: pt(0.1) });
+  it('flags rectangles of varying size drawn over each other in one style', () => {
+    let seed = 7;
+    const random = (min: number, max: number) => { seed = (seed * 16807) % 2147483647; return min + (max - min) * seed / 2147483647; };
+    const paths = Array.from({ length: 12 }, () => rectangle(random(0, 30), random(0, 30), random(20, 45), random(20, 45)));
+    const result = traceSizes({ paths, texts: [], assignments: { [styleKeyOf(paths[0])]: 'uni' }, options: { ...opts, resolutionMm: 1 }, scale });
+    expect(sheetProblem(result)).toBe('overlapping');
+    expect(dominantStyleKey(paths)).toBe(styleKeyOf(paths[0]));
+  });
+  it('accepts separate pieces with nested sizes and hem lines', () => {
+    const paths = [0, 1, 2].flatMap(piece => {
+      const x = piece * 70;
+      return [rectangle(x, 0, 60, 40), rectangle(x + 4, 4, 52, 32), rectangle(x + 8, 8, 44, 24), line(x, 12, x + 60, 12), line(x, 28, x + 60, 28)];
+    });
+    const result = traceSizes({ paths, texts: [], assignments: { [styleKeyOf(paths[0])]: 'uni' }, options: opts, scale });
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(sheetProblem(result)).toBeNull();
   });
 });
 describe('size suggestion', () => {

@@ -1,6 +1,6 @@
 import { area, isSimple, pointSegmentDistance } from '../geom/polygon';
 import { strokeMetrics } from './stroke';
-import { styleKeyOf } from './styles';
+import { styleKeyOf, styleLegend } from './styles';
 import { groupPieces } from './group';
 import { withoutScaleMarks } from './scale';
 import type { Cell, PdfPath, PdfText, Pt, ScaleResult, TraceOptions, TraceRequest, TraceResult } from './types';
@@ -393,6 +393,29 @@ export function traceSizes({ paths, texts, assignments, options, scale, excludeS
   const outlines = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.ring)]));
   const cells = Object.fromEntries(sizes.map(size => [size, shapes[size].map(s => s.cells)]));
   return { cmPerPt: options.cmPerPt, sizes, candidates: groupPieces(outlines, texts, cells) };
+}
+
+// Overlapping pieces of every size in one line style trace as blobs with very many cells (Alexia: 163 and 90
+// cells of at least 3 cm2; supported sheets: at most 23 per piece). More than MAX_CELLS in one candidate, or
+// half of the traced area in candidates with more than MANY_CELLS, flags the sheet.
+const CELL_MIN_CM2 = 3, MAX_CELLS = 60, MANY_CELLS = 30, MANY_AREA_SHARE = 0.5;
+export function sheetProblem(result: TraceResult): 'overlapping' | null {
+  const cm2 = result.cmPerPt ** 2;
+  let total = 0, many = 0;
+  for (const candidate of result.candidates) {
+    const counts = Object.values(candidate.cells ?? {}).map(cells => cells.filter(cell => cell.areaPt2 * cm2 >= CELL_MIN_CM2).length);
+    const count = Math.max(0, ...counts), outline = area(candidate.sizes[candidate.refSize] ?? []) * cm2;
+    if (count > MAX_CELLS) return 'overlapping';
+    total += outline;
+    if (count > MANY_CELLS) many += outline;
+  }
+  return total > 0 && many >= MANY_AREA_SHARE * total ? 'overlapping' : null;
+}
+
+// The style to probe when no size suggestion wins: one style holding over 80 % of all line length.
+export function dominantStyleKey(paths: PdfPath[]): string | undefined {
+  const legend = styleLegend(paths), total = legend.reduce((sum, e) => sum + e.lengthPt, 0);
+  return legend[0] && legend[0].lengthPt > 0.8 * total ? legend[0].key : undefined;
 }
 
 // Default size guess: the one style that encloses clearly more area than any other.
