@@ -43,6 +43,14 @@ export function chooseVariant(pattern: PatternFile, line: OrderLine, group: stri
   for (const p of pattern.pieces) if (p.variantGroup === group) include[p.id] = variantLabel(p) === label;
   return include;
 }
+// "N z M" of the pieces list: a variant group counts as one piece, chosen unless it is skipped.
+export function pieceCounts(pattern: PatternFile, line: OrderLine): { selected: number; total: number } {
+  const available = pattern.pieces.filter(p => p.sizes[line.size]);
+  const groups = [...new Set(available.flatMap(p => p.variantGroup ? [p.variantGroup] : []))];
+  const included = new Set(includedPieces(pattern, line).map(p => p.id)), plain = available.filter(p => !p.variantGroup);
+  return { total: plain.length + groups.length,
+    selected: plain.filter(p => included.has(p.id)).length + groups.filter(g => variantChoice(pattern, line, g) !== null).length };
+}
 export function includedPieces(pattern: PatternFile, line: OrderLine): Piece[] {
   const available = pattern.pieces.filter(p => p.sizes[line.size]);
   const choices = new Map<string, string | null>();
@@ -63,6 +71,12 @@ export function checkInputs(settings: Settings, fabrics: Record<string, Fabric>,
     if (f.length !== null && !(f.length > 0 && f.length <= 10_000)) return `${material}: délka kusu musí být větší než 0 a nejvýše 10 000 cm.`;
   }
   return null;
+}
+// Order lines that use a pattern, counted before deleting it.
+export const linesUsing = (order: OrderLine[], patternId: string): number => order.filter(line => line.patternId === patternId).length;
+export function deleteQuestion(name: string, lines: number): string {
+  const rows = lines === 1 ? 'řádek' : lines < 5 ? 'řádky' : 'řádků';
+  return lines ? `Smazat střih „${name}“? Zmizí i ze seznamu Co šiju (${lines} ${rows}). Nejde to vrátit.` : `Smazat střih „${name}“? Nejde to vrátit.`;
 }
 const pieces = (n: number) => n === 1 ? 'kus' : n < 5 ? 'kusy' : 'kusů';
 export interface PreparedOrder {
@@ -85,7 +99,7 @@ export function prepare(
     if (!pattern) { notes.add('Vybraný střih není v knihovně. Importujte jej znovu.'); continue; }
     if (!pattern.sizes.includes(line.size)) throw new Error(`${pattern.name}: vyberte platnou velikost.`);
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 100)
-      throw new Error('Množství v zakázce musí být celé číslo 1–100.');
+      throw new Error('Počet kusů musí být celé číslo 1–100.');
     for (const piece of includedPieces(pattern, line)) {
       const shape = piece.sizes[line.size];
       const aligned = shape.fold ? alignFoldOutline(shape.outline, shape.fold) : { polygon: shape.outline, adjusted: false };

@@ -1,32 +1,50 @@
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { PatternFile } from '../model/pattern';
 import { demo } from '../model/demo';
+import { deleteQuestion } from '../model/prepare';
 
-export function Library({ patterns, loading, onImport, onImportPdf, onBackup, onAdd, onDelete }: {
-  patterns: PatternFile[]; loading: boolean; onImportPdf: () => void; onBackup: () => void; onImport: (files: File[]) => Promise<void>;
-  onAdd: (pattern: PatternFile) => void; onDelete: (pattern: PatternFile) => void;
+// A library row. Deleting is two steps: "⋯" opens the menu, "Smazat střih…" asks inline, "Ponechat" has the focus.
+function LibraryItem({ pattern, lines, onAdd, onDelete }: { pattern: PatternFile; lines: number; onAdd: () => void; onDelete: () => void }) {
+  const [mode, setMode] = useState<'idle' | 'menu' | 'confirm'>('idle');
+  const more = useRef<HTMLButtonElement>(null), keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (mode === 'confirm') keep.current?.focus(); }, [mode]);
+  const close = () => { setMode('idle'); more.current?.focus(); };
+  return <div class="library-item" onKeyDown={e => { if (e.key === 'Escape' && mode !== 'idle') { e.stopPropagation(); close(); } }}>
+    <div class="library-row">
+      <div class="grow"><strong>{pattern.name}</strong><p>{pattern.id === demo.id ? 'Syntetické demo' : pattern.author ?? 'Vlastní střih'} · {pattern.pieces.length} dílů · {pattern.sizes.join(', ')}</p></div>
+      <button type="button" class="text-button" onClick={onAdd} aria-label={`Přidat ${pattern.name} do seznamu Co šiju`}>Do plánu</button>
+      {pattern.id !== demo.id && <button type="button" ref={more} class="icon-button" aria-label={`Další akce: ${pattern.name}`} aria-expanded={mode === 'menu'}
+        onClick={() => setMode(m => m === 'idle' ? 'menu' : 'idle')}>⋯</button>}
+    </div>
+    {mode === 'menu' && <div class="library-menu"><button type="button" class="text-button danger-text" onClick={() => setMode('confirm')}>Smazat střih…</button></div>}
+    {mode === 'confirm' && <div class="delete-confirm" role="group" aria-label="Smazat střih"><p>{deleteQuestion(pattern.name, lines)}</p>
+      <div class="field-row"><button type="button" class="secondary danger-button" onClick={onDelete}>Smazat střih</button>
+        <button type="button" class="secondary" ref={keep} onClick={close}>Ponechat</button></div></div>}
+  </div>;
+}
+
+export function Library({ patterns, linesUsing, loading, onImport, onImportPdf, onBackup, onAdd, onDelete }: {
+  patterns: PatternFile[]; linesUsing: (patternId: string) => number; loading: boolean; onImportPdf: () => void; onBackup: () => void;
+  onImport: (files: File[]) => Promise<void>; onAdd: (pattern: PatternFile) => void; onDelete: (pattern: PatternFile) => void;
 }) {
   const input = useRef<HTMLInputElement>(null), [dragging, setDragging] = useState(false);
-  return <section class="panel library"><div class="section-heading"><h2>Knihovna střihů</h2><span class="count">{patterns.length}</span></div>
-    <div class={`dropzone ${dragging ? 'dragging' : ''}`} onDragOver={e => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)} onDrop={e => {
-        e.preventDefault(); setDragging(false);
-        if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
-      }}>
-      <span class="import-icon" aria-hidden="true">↥</span><div><strong>Vaše střihy mají místo tady</strong><p>Přetáhněte soubory .json (i zálohu) nebo je vyberte.</p></div>
-      <button type="button" class="secondary" disabled={loading} onClick={() => input.current?.click()}>{loading ? 'Načítání…' : 'Importovat střihy'}</button>
-      <input ref={input} class="visually-hidden" type="file" accept=".json,application/json" multiple aria-label="Importovat soubory střihů" onChange={e => {
+  // Files can be dropped anywhere on the list, so the backup block can stay closed.
+  return <div id="moje-strihy" tabIndex={-1} class={`library ${dragging ? 'dragging' : ''}`} onDragOver={e => { e.preventDefault(); setDragging(true); }}
+    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }} onDrop={e => {
+      e.preventDefault(); setDragging(false);
+      if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
+    }}>
+    <div class="section-heading"><h3>Moje střihy</h3><span class="count">{patterns.length}</span></div>
+    <button type="button" class="primary pdf-import-button" onClick={onImportPdf}>Přidat střih z PDF</button>
+    {dragging && <p class="drop-hint" role="status">Pusťte soubor střihu nebo zálohy (.json) sem.</p>}
+    <div class="library-list">{patterns.map(p => <LibraryItem key={p.id} pattern={p} lines={linesUsing(p.id)} onAdd={() => onAdd(p)} onDelete={() => onDelete(p)} />)}</div>
+    <details class="advanced"><summary>Záloha a soubory</summary>
+      <p class="small">Střihy jsou uložené jen v tomto prohlížeči. Zálohu si uložte do souboru, ať o ně nepřijdete. Soubor můžete také přetáhnout na seznam střihů.</p>
+      <div class="field-row"><button type="button" class="text-button" onClick={onBackup}>Zálohovat vše do souboru</button>
+        <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>{loading ? 'Načítání…' : 'Nahrát soubor střihu nebo zálohy (.json)'}</button></div>
+      <input ref={input} class="visually-hidden" type="file" accept=".json,application/json" multiple aria-label="Nahrát soubory střihů nebo zálohy" onChange={e => {
         const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void onImport(files);
       }} />
-    </div>
-    <button type="button" class="secondary pdf-import-button" onClick={onImportPdf}>Importovat PDF…</button>
-    <div class="field-row"><button type="button" class="text-button" onClick={onBackup}>Zálohovat vše do souboru</button>
-      <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>Obnovit ze zálohy</button></div>
-    <div class="library-list">{patterns.map(p => <div class="library-item" key={p.id}>
-      <div class="grow"><strong>{p.name}</strong><p>{p.id === demo.id ? 'Syntetické demo' : p.author ?? 'Vlastní střih'} · {p.pieces.length} dílů · {p.sizes.join(', ')}</p></div>
-      <button type="button" class="text-button" onClick={() => onAdd(p)} aria-label={`Přidat ${p.name} do seznamu Co šiju`}>+ Přidat</button>
-      {p.id !== demo.id && <button type="button" class="icon-button" aria-label={`Smazat ${p.name} z knihovny`} onClick={() => onDelete(p)}>×</button>}
-    </div>)}</div>
-    <p class="privacy"><span aria-hidden="true">◈</span> Střihy zůstávají v tomto prohlížeči. Nikam je neposíláme.</p>
-  </section>;
+    </details>
+  </div>;
 }

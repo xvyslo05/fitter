@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
-import { DEFAULT_GAP_CM, checkInputs, defaultFabric, defaultSettings, makeOrder, own, prepare } from '../model/prepare';
+import { fabricSummary, SHRINKAGE_NOTE } from '../model/summary';
+import { DEFAULT_GAP_CM, checkInputs, defaultFabric, defaultSettings, linesUsing, makeOrder, own, prepare } from '../model/prepare';
 import type { PreparedOrder } from '../model/prepare';
 import type { Fabric, NestJob, NestResult, WorkerResponse } from '../nest/types';
 import { MAX_IMPORT_BYTES, backupFileName, deletePattern, exportBackup, isBackup, loadLibrary, loadWorkspace, parseBackup, savePattern, saveWorkspace } from '../storage';
@@ -16,6 +17,18 @@ import { OrderEditor } from './OrderEditor';
 import { PdfImport } from './PdfImport';
 
 const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? 'neznámého data' : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; };
+// "Kolik látky koupit": one sentence per material, in material order, above the drawings.
+function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<string, NestResult>; busy: boolean }) {
+  const rows = jobs.flatMap(job => {
+    const result = Object.hasOwn(results, job.material) ? results[job.material] : null;
+    const summary = result || busy ? fabricSummary(job.material, job.fabric, result, job.pieces.length) : null;
+    return summary ? [{ material: job.material, ...summary }] : [];
+  });
+  if (!rows.length) return null;
+  return <section class="buy-box" aria-label="Kolik látky koupit"><h3>Kolik látky koupit</h3>
+    {rows.map(row => <p key={row.material}>{row.text}{row.exact && <small>{row.exact}</small>}</p>)}
+    <p class="small muted">{SHRINKAGE_NOTE}</p></section>;
+}
 interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: string[] }
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace() ?? {
@@ -117,8 +130,8 @@ export function App() {
       await deletePattern(pattern.id);
       setPatterns(prev => prev.filter(p => p.id !== pattern.id));
       setWorkspace(prev => ({ ...prev, order: prev.order.filter(line => line.patternId !== pattern.id) }));
-      setMessages([`${pattern.name}: odstraněno z knihovny i z plánu. Původní soubor můžete znovu importovat.`]);
-    } catch { setMessages(['Střih se nepodařilo odstranit z úložiště.']); }
+      setMessages([`Střih „${pattern.name}“ je smazaný.`]);
+    } catch { setMessages(['Střih se nepodařilo smazat. Zkuste to znovu.']); }
   }
   function run() {
     if (inputError) { setMessages([inputError]); return; }
@@ -153,6 +166,15 @@ export function App() {
       if (window.innerWidth < 900) resultsSection.current?.scrollIntoView({ behavior: 'smooth' });
     } catch { setBusy(false); setMessages(['Prohlížeč nemohl spustit výpočetní worker.']); setStatus('Výpočet se nezdařil.'); }
   }
+  // Both move the view to where the choice is made (the library list, the seam allowance field).
+  function showLibrary() {
+    const library = document.getElementById('moje-strihy');
+    library?.scrollIntoView({ behavior: 'smooth', block: 'start' }); library?.focus({ preventScroll: true });
+  }
+  function editSeam() {
+    const field = document.getElementById('seam-amount');
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' }); field?.focus({ preventScroll: true });
+  }
   function chooseTheme(choice: ThemeChoice) {
     setThemeChoice(choice); applyTheme(choice); saveThemeChoice(choice);
   }
@@ -183,14 +205,14 @@ export function App() {
       <div class="workspace">
         <form class="controls" onSubmit={e => { e.preventDefault(); run(); }}>
           <fieldset disabled={busy} class="controls-fieldset">
-            <Library onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onBackup={backupAll} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
-              onDelete={pattern => void removePattern(pattern)} />
             <section class="panel"><div class="section-heading"><h2><span class="step">01</span>Co šiju</h2><span class="count">{order.length}</span></div>
-              {!order.length && <p class="muted">Vyberte střih v knihovně tlačítkem „+ Přidat“.</p>}
-              {order.map(line => <OrderEditor key={line.id} line={line} patterns={patterns} settings={settings} onSettings={updateSettings}
+              {!order.length && <p class="muted">Vyberte střih níže tlačítkem „Do plánu“, nebo přidejte vlastní z PDF.</p>}
+              {order.map(line => <OrderEditor key={line.id} line={line} patterns={patterns} settings={settings} onSettings={updateSettings} onEditSeam={editSeam}
                 onChange={next => setWorkspace(prev => ({ ...prev, order: prev.order.map(l => l.id === line.id ? next : l) }))}
                 onRemove={() => setWorkspace(prev => ({ ...prev, order: prev.order.filter(l => l.id !== line.id) }))} />)}
-              <button type="button" class="add-line" onClick={() => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(patterns[0])] }))}>+ Přidat další střih</button>
+              <button type="button" class="add-line" onClick={showLibrary}>+ Přidat další střih</button>
+              <Library linesUsing={id => linesUsing(order, id)} onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onBackup={backupAll} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
+                onDelete={pattern => void removePattern(pattern)} />
             </section>
             <section class="panel"><div class="section-heading"><h2><span class="step">02</span>Látky</h2><span class="unit-hint">v centimetrech</span></div>
               {!materials.length && <p class="muted">Materiály se objeví podle vybraných dílů.</p>}
@@ -211,7 +233,7 @@ export function App() {
               })}
             </section>
             <section class="panel"><div class="section-heading"><h2><span class="step">03</span>Nastavení</h2></div>
-              <div class="field-row"><NumberField label="Přídavek na švy" value={settings.seamAmount} max={10} onChange={seamAmount => updateSettings({ ...settings, seamAmount })} />
+              <div class="field-row"><NumberField id="seam-amount" label="Přídavek na švy" value={settings.seamAmount} max={10} onChange={seamAmount => updateSettings({ ...settings, seamAmount })} />
                 <NumberField label="Mezera mezi díly" value={settings.gap} max={10} onChange={gap => updateSettings({ ...settings, gap })} /></div>
               <p class="small muted">Mezera mezi díly: místo na stříhání mezi sousedními díly. Pro stříhání nůžkami nechte 0,5 cm; při 0 se díly mohou dotýkat. Přídavek na švy je už započítaný zvlášť.{' '}
                 {settings.gap !== DEFAULT_GAP_CM && <button type="button" class="text-button" onClick={() => updateSettings({ ...settings, gap: DEFAULT_GAP_CM })}>Výchozí</button>}</p>
@@ -242,6 +264,7 @@ export function App() {
           {stale && <div class="notice warning">Seznam Co šiju nebo nastavení se změnily. Zobrazené výsledky patří k předchozímu výpočtu; spusťte nový.</div>}
           {(snapshot?.notes ?? prepared.data.notes).length > 0 && <details class="notes" open><summary>Poznámky ke stříhání</summary>
             <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={note}>{note}</li>)}</ul></details>}
+          {snapshot && <BuyBox jobs={snapshot.jobs} results={results} busy={busy} />}
           {!snapshot ? <EmptyLayout /> : snapshot.jobs.map(job => Object.hasOwn(results, job.material)
             ? <Layout key={job.material} {...job} result={results[job.material]} mirroredKeys={snapshot.mirroredKeys} />
             : <div class="pending-material" key={job.material}><h3>{job.material}</h3><p>{busy ? 'Čeká na výpočet…' : 'Tento materiál zatím nebyl spočítán.'}</p></div>)}

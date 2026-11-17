@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { demo } from '../src/model/demo';
-import { DEFAULT_GAP_CM, checkInputs, chooseVariant, defaultFabric, defaultSettings, includedPieces, makeOrder, prepare, variantChoice } from '../src/model/prepare';
+import { DEFAULT_GAP_CM, checkInputs, chooseVariant, defaultFabric, defaultSettings, deleteQuestion, includedPieces, linesUsing, makeOrder, pieceCounts, prepare, variantChoice } from '../src/model/prepare';
 import { area, bbox, mirrorX } from '../src/geom/polygon';
 import type { Fabric } from '../src/nest/types';
 import { asymmetricPiece } from './fixtures';
@@ -194,5 +194,36 @@ describe('prepare', () => {
     expect(defaultSettings.gap).toBe(DEFAULT_GAP_CM);
     const files = (readdirSync('src', { recursive: true }) as string[]).filter(f => /\.tsx?$/.test(f));
     expect(files.filter(f => /\bgap: 0\.5\b/.test(readFileSync(join('src', f), 'utf8')))).toEqual([]);
+  });
+});
+
+describe('deleting a pattern', () => {
+  it('counts the order lines that use a pattern', () => {
+    const a = makeOrder(demo, 'a'), b = makeOrder(demo, 'b'), other = { ...makeOrder(demo, 'c'), patternId: 'jiny' };
+    expect(linesUsing([], demo.id)).toBe(0);
+    expect(linesUsing([other], demo.id)).toBe(0);
+    expect(linesUsing([a, other], demo.id)).toBe(1);
+    expect(linesUsing([a, b, other], demo.id)).toBe(2);
+  });
+  it('asks differently when the pattern is in the plan', () => {
+    expect(deleteQuestion('Mikina', 0)).toBe('Smazat střih „Mikina“? Nejde to vrátit.');
+    expect(deleteQuestion('Mikina', 1)).toBe('Smazat střih „Mikina“? Zmizí i ze seznamu Co šiju (1 řádek). Nejde to vrátit.');
+    expect(deleteQuestion('Mikina', 2)).toContain('(2 řádky)');
+    expect(deleteQuestion('Mikina', 5)).toContain('(5 řádků)');
+  });
+});
+
+describe('pieceCounts', () => {
+  it('counts a variant group as one piece and ignores pieces missing in the size', () => {
+    const { pattern, line } = setup();
+    expect(pieceCounts(pattern, line)).toEqual({ selected: 3, total: 4 });
+    line.include = { tab: true };
+    expect(pieceCounts(pattern, line)).toEqual({ selected: 4, total: 4 });
+    line.include = chooseVariant(pattern, line, 'Kapsa', '');
+    expect(pieceCounts(pattern, line)).toEqual({ selected: 3, total: 4 });
+    line.include = { ...line.include, handle: false };
+    expect(pieceCounts(pattern, line)).toEqual({ selected: 2, total: 4 });
+    delete pattern.pieces[1].sizes.uni;
+    expect(pieceCounts(pattern, line)).toEqual({ selected: 2, total: 3 });
   });
 });

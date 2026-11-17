@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'preact/hooks';
 import { bbox } from '../geom/polygon';
 import type { Pt } from '../model/pattern';
 import type { Fabric, NestPiece, NestResult, Placement } from '../nest/types';
+import { lengthToBuy } from '../model/summary';
 import { exportPNG, exportSVG } from './export';
 
 // A placed piece against its paper pattern. flipY (a fold piece turned over along the fold) is a
@@ -177,7 +178,7 @@ export function Layout({ material, fabric, pieces, result, mirroredKeys }: {
     {result.unplaced.length > 0 && <div class="unplaced"><h4>Nevešlo se ({result.unplaced.length})</h4><ul>{table.unplaced.map((label, i) => <li key={result.unplaced[i]}>{label}</li>)}</ul></div>}
     <div class="print-only print-details">
       <p>Látka {cm(fabric.width)} cm široká{fabric.folded ? `, složená napůl (využitelná šířka ${cm(width)} cm, přehyb vlevo)` : ''}. {fabric.length === null
-        ? `Délka ke koupi: alespoň ${cm(Math.ceil(result.usedLength))} cm.` : `Pevný kus o délce ${cm(fabric.length)} cm, spotřebováno ${cm(result.usedLength)} cm.`}</p>
+        ? `Délka ke koupi: alespoň ${cm(lengthToBuy(result.usedLength))} cm.` : `Pevný kus o délce ${cm(fabric.length)} cm, spotřebováno ${cm(result.usedLength)} cm.`}</p>
       <p class="small">Nákres je zmenšený, řiďte se kótami.</p>
       <table class="print-table"><thead><tr><th>Díl</th><th>Velikost</th><th>Zrcadlově</th><th>{fabric.folded ? 'Od přehybu' : 'Zleva'} (cm)</th><th>Shora (cm)</th></tr></thead>
         <tbody>{table.rows.map(row => <tr key={row.key}><td>{row.name}</td><td>{row.size}</td><td>{row.mirrored ? 'zrcadlově' : 'ne'}</td><td>{cm(row.left)}</td><td>{cm(row.top)}</td></tr>)}</tbody></table>
