@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { inlineTokens } from '../theme';
 
 function download(blob: Blob, name: string) {
@@ -29,13 +30,13 @@ export async function exportPNG(svg: SVGSVGElement, material: string): Promise<v
   const url = URL.createObjectURL(source);
   try {
     const image = new Image();
-    await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('Obrázek se nepodařilo vytvořit.')); image.src = url; });
+    await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error(t('export.imageFailed'))); image.src = url; });
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('Prohlížeč nepodporuje export PNG.');
+    if (!context) throw new Error(t('export.pngUnsupported'));
     context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height); context.drawImage(image, 0, 0);
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('Export PNG se nezdařil.');
+    if (!blob) throw new Error(t('export.pngFailed'));
     download(blob, `fitter-${safeName(material)}.png`);
   } finally { URL.revokeObjectURL(url); }
 }

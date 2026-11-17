@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { fmt, t } from '../i18n';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
@@ -17,7 +18,7 @@ import { OrderEditor } from './OrderEditor';
 import { PdfImport } from './PdfImport';
 import { Refine } from './Refine';
 
-const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? 'neznámého data' : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; };
+const backupDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? t('app.unknownDate') : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; };
 // "Kolik látky koupit": one sentence per material, in material order, above the drawings.
 function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<string, NestResult>; busy: boolean }) {
   const rows = jobs.flatMap(job => {
@@ -26,12 +27,12 @@ function BuyBox({ jobs, results, busy }: { jobs: NestJob[]; results: Record<stri
     return summary ? [{ material: job.material, ...summary }] : [];
   });
   if (!rows.length) return null;
-  return <section class="buy-box" aria-label="Kolik látky koupit"><h3>Kolik látky koupit</h3>
+  return <section class="buy-box" aria-label={t('buy.title')}><h3>{t('buy.title')}</h3>
     {rows.map(row => <p key={row.material}>{row.text}{row.exact && <small>{row.exact}</small>}</p>)}
     <p class="small muted">{SHRINKAGE_NOTE}</p>
-    <button type="button" class="secondary screen-only" onClick={() => window.print()}>Vytisknout plán</button></section>;
+    <button type="button" class="secondary screen-only" onClick={() => window.print()}>{t('buy.print')}</button></section>;
 }
-const DEMO_ID_TAKEN = 'Tento soubor má stejné označení jako ukázkový střih, proto ho nejde nahrát.';
+const demoIdTaken = () => t('app.demoIdTaken');
 const MOBILE_QUERY = '(max-width:560px)';
 interface RunSnapshot { signature: string; jobs: NestJob[]; mirroredKeys: string[]; notes: string[] }
 export function App() {
@@ -61,7 +62,7 @@ export function App() {
     loadLibrary().then(({ patterns, errors }) => {
       if (!cancelled) { setPatterns([demo, ...patterns.filter(p => p.id !== demo.id)]); setMessages(errors); }
     }).catch(() => {
-      if (!cancelled) setMessages(['Uložené střihy se nepodařilo načíst. Nově přidané střihy zůstanou jen do zavření stránky.']);
+      if (!cancelled) setMessages([t('app.libraryLoadFailed')]);
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; worker.current?.terminate(); };
   }, []);
@@ -81,7 +82,7 @@ export function App() {
   const signature = useMemo(() => JSON.stringify({ workspace, patterns }), [workspace, patterns]);
   const prepared = useMemo<{ data: PreparedOrder; error?: string }>(() => {
     try { return { data: prepare(patterns, order, fabrics, settings) }; }
-    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : 'Zkontrolujte seznam Co šiju.' }; }
+    catch (e) { return { data: { materials: {}, notes: [], mirroredKeys: [] }, error: e instanceof Error ? e.message : t('app.checkOrder') }; }
   }, [patterns, order, fabrics, settings]);
   const materials = Object.keys(prepared.data.materials);
   const inputError = prepared.error ?? checkInputs(settings, fabrics, materials);
@@ -100,18 +101,18 @@ export function App() {
     let count = 0, backup: ParsedBackup | null = null;
     for (const file of files) {
       try {
-        if (file.size > MAX_IMPORT_BYTES) throw new Error('Soubor je větší než 25 MB.');
+        if (file.size > MAX_IMPORT_BYTES) throw new Error(t('import.tooLarge'));
         const json: unknown = JSON.parse(await file.text());
         if (isBackup(json)) { backup = parseBackup(json); continue; }
         const pattern = parsePatternFile(json);
-        if (pattern.id === demo.id) throw new Error(DEMO_ID_TAKEN);
+        if (pattern.id === demo.id) throw new Error(demoIdTaken());
         try { await savePattern(pattern); }
-        catch { messages.push(`${file.name}: prohlížeč nedovolil střih uložit. Zůstane jen do zavření stránky.`); }
+        catch { messages.push(t('import.saveBlocked', { name: file.name })); }
         setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
         count++;
-      } catch (e) { messages.push(`${file.name}: ${e instanceof SyntaxError ? 'tohle není soubor střihu ani záloha z fitteru.' : e instanceof Error ? e.message : 'Import se nezdařil.'}`); }
+      } catch (e) { messages.push(t('import.fileError', { name: file.name, reason: e instanceof SyntaxError ? t('import.notPattern') : e instanceof Error ? e.message : t('import.failed') })); }
     }
-    if (count) messages.unshift(`Přidáno střihů: ${count}. Střih, který už v seznamu byl, je nahrazený novou verzí.`);
+    if (count) messages.unshift(t('import.added', { count }));
     setMessages(messages); setRestore(backup); setLoading(false);
   }
   function backupAll() {
@@ -129,18 +130,18 @@ export function App() {
     for (const pattern of backup.patterns) { try { await savePattern(pattern); } catch { storageFailed = true; } }
     setPatterns(prev => [demo, ...(replace ? [] : prev.filter(p => p.id !== demo.id && !backup.patterns.some(b => b.id === p.id))), ...backup.patterns]);
     if (replace && backup.workspace) setWorkspace(backup.workspace);
-    messages.push(`Záloha obnovena: ${backup.patterns.length} střihů${replace && backup.workspace ? ' a seznam Co šiju' : ''}.`, ...backup.errors);
-    if (storageFailed) messages.push('Ukládání není dostupné, střihy zůstanou jen do zavření stránky.');
+    messages.push(t(replace && backup.workspace ? 'restore.doneWithOrder' : 'restore.done', { count: backup.patterns.length }), ...backup.errors);
+    if (storageFailed) messages.push(t('restore.storageFailed'));
     setMessages(messages); setLoading(false);
   }
   // The PDF wizard's result goes the way of a JSON import: stored, listed, reported.
   async function savePdfPattern(pattern: PatternFile) {
-    if (pattern.id === demo.id) { setMessages([DEMO_ID_TAKEN]); return; }
+    if (pattern.id === demo.id) { setMessages([demoIdTaken()]); return; }
     // A new pattern takes the place of an untouched sample row; any other plan only gets the pattern in the library.
     const replaceDemo = shouldReplaceDemo(order, demo.id);
-    let message = `Střih „${pattern.name}“ je uložený ${replaceDemo ? 'a nahradil ukázkový střih v seznamu Co šiju' : 'v Moje střihy. Do seznamu Co šiju ho přidáte tlačítkem „Do plánu“'}. Tip: zálohujte si střihy do souboru.`;
+    let message = t(replaceDemo ? 'pdfSaved.replacedDemo' : 'pdfSaved.inLibrary', { name: pattern.name });
     try { await savePattern(pattern); }
-    catch { message = `${pattern.name}: prohlížeč nedovolil střih uložit. Zůstane jen do zavření stránky.`; }
+    catch { message = t('import.saveBlocked', { name: pattern.name }); }
     setPatterns(prev => [...prev.filter(p => p.id !== pattern.id), pattern]);
     if (replaceDemo) setWorkspace(prev => shouldReplaceDemo(prev.order, demo.id) ? { ...prev, order: [makeOrder(pattern)] } : prev);
     setMessages([message]); setPdfImport(false);
@@ -150,19 +151,19 @@ export function App() {
       await deletePattern(pattern.id);
       setPatterns(prev => prev.filter(p => p.id !== pattern.id));
       setWorkspace(prev => ({ ...prev, order: prev.order.filter(line => line.patternId !== pattern.id) }));
-      setMessages([`Střih „${pattern.name}“ je smazaný.`]);
-    } catch { setMessages(['Střih se nepodařilo smazat. Zkuste to znovu.']); }
+      setMessages([t('pattern.deleted', { name: pattern.name })]);
+    } catch { setMessages([t('pattern.deleteFailed')]); }
   }
   function run() {
     if (inputError) return;
-    if (!materials.length) { setRunError('V seznamu Co šiju není žádný díl. Přidejte střih, nebo zaškrtněte díly.'); return; }
+    if (!materials.length) { setRunError(t('run.noPieces')); return; }
     if (order.some(line => !patterns.some(p => p.id === line.patternId))) {
-      setRunError('Jeden střih ze seznamu Co šiju už není uložený. Přidejte ho znovu, nebo jeho řádek odeberte.'); return;
+      setRunError(t('run.patternGone')); return;
     }
     const jobs = materials.map(material => ({ material, pieces: prepared.data.materials[material], fabric: own(fabrics, material) ?? defaultFabric() }));
     worker.current?.terminate();
     setSnapshot({ signature, jobs, mirroredKeys: prepared.data.mirroredKeys, notes: prepared.data.notes });
-    setResults(Object.create(null)); setMessages([]); setRunError(''); setBusy(true); setStatus('Připravuji první polohový plán…');
+    setResults(Object.create(null)); setMessages([]); setRunError(''); setBusy(true); setStatus(t('run.preparing'));
     try {
       const activeWorker = new Worker(new URL('../nest/worker.ts', import.meta.url), { type: 'module' });
       worker.current = activeWorker;
@@ -170,21 +171,21 @@ export function App() {
         if (worker.current !== activeWorker) return;
         if (data.type === 'progress' || data.type === 'result') {
           setResults(prev => ({ ...prev, [data.material]: data.result }));
-          setStatus(`Hledám úspornější polohový plán · ${data.material}`);
+          setStatus(t('run.searching', { material: data.material }));
         } else {
           setBusy(false); activeWorker.terminate(); worker.current = null;
-          if (data.type === 'error') { setRunError(data.message); setStatus('Výpočet se nezdařil.'); }
-          else setStatus('Polohový plán je připravený.');
+          if (data.type === 'error') { setRunError(data.message); setStatus(t('run.failed')); }
+          else setStatus(t('run.done'));
         }
       };
       activeWorker.onerror = () => {
         if (worker.current !== activeWorker) return;
-        setRunError('Výpočet se přerušil. Zkuste méně střihů najednou, nebo v Upřesnit zvolte přesnost „Hrubá“.');
-        setStatus('Výpočet se nezdařil.'); setBusy(false); activeWorker.terminate(); worker.current = null;
+        setRunError(t('run.interrupted'));
+        setStatus(t('run.failed')); setBusy(false); activeWorker.terminate(); worker.current = null;
       };
       activeWorker.postMessage({ jobs, options: settings });
       if (window.innerWidth < 900) resultsSection.current?.scrollIntoView({ behavior: 'smooth' });
-    } catch { setBusy(false); setRunError('Výpočet se nepodařilo spustit. Načtěte stránku znovu, případně zkuste jiný prohlížeč.'); setStatus('Výpočet se nezdařil.'); }
+    } catch { setBusy(false); setRunError(t('run.couldNotStart')); setStatus(t('run.failed')); }
   }
   // Both move the view to where the choice is made (the library list, the seam allowance field).
   function showLibrary() {
@@ -203,40 +204,40 @@ export function App() {
   }
   function stop() {
     worker.current?.terminate(); worker.current = null; setBusy(false);
-    setStatus('Zastaveno. Nejlepší dosud nalezený polohový plán zůstává zobrazený.');
+    setStatus(t('run.stopped'));
   }
 
   return <>
-    <header class="site-header"><a href="./" class="brand" aria-label="fitter · úvod"><span class="brand-mark" aria-hidden="true">f</span>fitter<span class="brand-dot">.</span></a>
-      <span class="local-badge"><span aria-hidden="true">●</span> Vše zůstává u vás</span></header>
+    <header class="site-header"><a href="./" class="brand" aria-label={t('app.brandLabel')}><span class="brand-mark" aria-hidden="true">f</span>fitter<span class="brand-dot">.</span></a>
+      <span class="local-badge"><span aria-hidden="true">●</span> {t('app.localBadge')}</span></header>
     <main>
-      {snapshot && <div class="print-only print-header"><h1>fitter · polohový plán</h1>
-        <p>{[...new Set(order.map(line => `${patterns.find(p => p.id === line.patternId)?.name ?? line.patternId} (${line.size}, ${line.quantity}×)`))].join('; ')}</p>
-        <p>{new Date().toLocaleDateString('cs')}</p></div>}
-      <div class="intro"><div><h1>Střihy na svém místě.</h1><p>Rozmístěte díly střihu na látku a zjistěte, kolik jí koupit.</p></div></div>
-      {storageWarning && <div class="notice warning" role="status">Prohlížeč neumožňuje uložit seznam Co šiju a nastavení. Po zavření stránky se nezachovají.</div>}
-      {restore && <div class="notice" role="status"><div><p>Záloha obsahuje {restore.patterns.length} střihů z {backupDate(restore.created)}. Obnovit?</p>
+      {snapshot && <div class="print-only print-header"><h1>{t('app.printTitle')}</h1>
+        <p>{[...new Set(order.map(line => t('app.printLine', { name: patterns.find(p => p.id === line.patternId)?.name ?? line.patternId, size: line.size, quantity: line.quantity })))].join('; ')}</p>
+        <p>{fmt.date(new Date())}</p></div>}
+      <div class="intro"><div><h1>{t('app.tagline')}</h1><p>{t('app.intro')}</p></div></div>
+      {storageWarning && <div class="notice warning" role="status">{t('app.storageWarning')}</div>}
+      {restore && <div class="notice" role="status"><div><p>{t('restore.prompt', { count: restore.patterns.length, date: backupDate(restore.created) })}</p>
         {restore.errors.map((message, i) => <p key={i}>{message}</p>)}
-        <div class="field-row"><button type="button" class="secondary" onClick={() => void applyRestore(restore, false)}>Přidat k mým střihům</button>
-          <button type="button" class="secondary" onClick={() => void applyRestore(restore, true)}>Nahradit vše</button></div></div>
-        <button type="button" class="icon-button" aria-label="Zrušit obnovení" onClick={() => setRestore(null)}>×</button></div>}
+        <div class="field-row"><button type="button" class="secondary" onClick={() => void applyRestore(restore, false)}>{t('restore.add')}</button>
+          <button type="button" class="secondary" onClick={() => void applyRestore(restore, true)}>{t('restore.replace')}</button></div></div>
+        <button type="button" class="icon-button" aria-label={t('restore.cancel')} onClick={() => setRestore(null)}>×</button></div>}
       <div class="workspace">
         <form class="controls" onSubmit={e => { e.preventDefault(); run(); }}>
           <fieldset disabled={busy} class="controls-fieldset">
-            <section class="panel"><div class="section-heading"><h2><span class="step">1</span>Co šiju</h2><span class="count">{order.length}</span></div>
-              {!order.length && <p class="muted">Vyberte střih níže tlačítkem „Do plánu“, nebo přidejte vlastní z PDF.</p>}
+            <section class="panel"><div class="section-heading"><h2><span class="step">1</span>{t('app.stepOrder')}</h2><span class="count">{order.length}</span></div>
+              {!order.length && <p class="muted">{t('app.orderEmpty')}</p>}
               {order.map(line => <OrderEditor key={line.id} line={line} patterns={patterns} settings={settings} onSettings={updateSettings} onEditSeam={editSeam}
                 onChange={next => setWorkspace(prev => ({ ...prev, order: prev.order.map(l => l.id === line.id ? next : l) }))}
                 onRemove={() => setWorkspace(prev => ({ ...prev, order: prev.order.filter(l => l.id !== line.id) }))} />)}
-              <button type="button" class="add-line" onClick={showLibrary}>+ Přidat další střih</button>
+              <button type="button" class="add-line" onClick={showLibrary}>{t('app.addAnother')}</button>
               <Library messages={messages} onDismissMessages={() => setMessages([])} collapsible={mobile} startCollapsed={startCollapsed} linesUsing={id => linesUsing(order, id)} onImportPdf={() => setPdfImport(true)} patterns={patterns} loading={loading} onImport={importFiles} onBackup={backupAll} onAdd={pattern => setWorkspace(prev => ({ ...prev, order: [...prev.order, makeOrder(pattern)] }))}
                 onDelete={pattern => void removePattern(pattern)} />
             </section>
-            <section class="panel"><div class="section-heading"><h2><span class="step">2</span>Látka</h2></div>
-              {!materials.length && <p class="muted">Materiály se objeví podle vybraných dílů.</p>}
+            <section class="panel"><div class="section-heading"><h2><span class="step">2</span>{t('app.stepFabric')}</h2></div>
+              {!materials.length && <p class="muted">{t('app.fabricEmpty')}</p>}
               <div class="fabric-list">{materials.map(material => <FabricEditor key={material} material={material} fabric={own(fabrics, material) ?? defaultFabric()} onChange={fabric => updateFabric(material, fabric)} />)}</div>
             </section>
-            <section class="panel"><div class="section-heading"><h2><span class="step">3</span>Polohový plán</h2></div>
+            <section class="panel"><div class="section-heading"><h2><span class="step">3</span>{t('app.stepMarker')}</h2></div>
               <Refine settings={settings} onSettings={updateSettings} detailsRef={refine} />
             </section>
           </fieldset>
@@ -245,29 +246,29 @@ export function App() {
             {busy
             // Distinct keys + preventDefault: otherwise Preact reuses this element as the submit button
             // before the click's default action runs, and stopping immediately restarts the run.
-            ? <button key="stop" type="button" class="stop-button" onClick={e => { e.preventDefault(); stop(); }}>■ Zastavit · <span>{elapsed.toFixed(1).replace('.', ',')} s</span></button>
-            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(inputError)}>Vytvořit polohový plán <span aria-hidden="true">↗</span></button>}</div>
+            ? <button key="stop" type="button" class="stop-button" onClick={e => { e.preventDefault(); stop(); }}>■ {t('run.stop')} · <span>{fmt.fixed(elapsed, 1)} s</span></button>
+            : <button key="run" type="submit" class="primary" disabled={loading || !materials.length || Boolean(inputError)}>{t('run.submit')} <span aria-hidden="true">↗</span></button>}</div>
         </form>
-        <section class="results" ref={resultsSection} aria-label="Výsledky: polohový plán">
-          <div class="results-heading"><h2>Váš polohový plán</h2>{!snapshot && <span class="muted small">Připraveno na první střih</span>}</div>
-          <p class="muted small">Polohový plán – rozmístění dílů střihu na látce.</p>
+        <section class="results" ref={resultsSection} aria-label={t('results.label')}>
+          <div class="results-heading"><h2>{t('results.title')}</h2>{!snapshot && <span class="muted small">{t('results.ready')}</span>}</div>
+          <p class="muted small">{t('results.definition')}</p>
           {status && <div class={`run-status ${busy ? 'running' : ''}`} role="status"><span class="status-dot" />{status}{busy && <span class="elapsed">{elapsed.toFixed(1)} s</span>}</div>}
-          {stale && <div class="notice warning" role="status"><p>Zadání se změnilo. Tento plán už neplatí, vytvořte nový.</p>
-            <button type="button" class="secondary" disabled={busy || loading || !materials.length || Boolean(inputError)} onClick={run}>Vytvořit znovu</button></div>}
-          {(snapshot?.notes ?? prepared.data.notes).length > 0 && <details class="notes" open><summary>Poznámky ke stříhání</summary>
+          {stale && <div class="notice warning" role="status"><p>{t('results.stale')}</p>
+            <button type="button" class="secondary" disabled={busy || loading || !materials.length || Boolean(inputError)} onClick={run}>{t('results.rerun')}</button></div>}
+          {(snapshot?.notes ?? prepared.data.notes).length > 0 && <details class="notes" open><summary>{t('results.notes')}</summary>
             <ul>{(snapshot?.notes ?? prepared.data.notes).map(note => <li key={note}>{note}</li>)}</ul></details>}
           {snapshot && <BuyBox jobs={snapshot.jobs} results={results} busy={busy} />}
           {!snapshot ? <EmptyLayout /> : snapshot.jobs.map(job => Object.hasOwn(results, job.material)
             ? <Layout key={job.material} {...job} result={results[job.material]} mirroredKeys={snapshot.mirroredKeys} />
-            : <div class="pending-material" key={job.material}><h3>{job.material}</h3><p>{busy ? 'Čeká na výpočet…' : 'Tato látka se zatím nespočítala.'}</p></div>)}
-          <p class="results-footnote">Obrys představuje výslednou řeznou linii. Před stříháním zkontrolujte směr vzoru, vlas látky a údaje ke střihu.</p>
+            : <div class="pending-material" key={job.material}><h3>{job.material}</h3><p>{busy ? t('results.pending') : t('results.notComputed')}</p></div>)}
+          <p class="results-footnote">{t('results.footnote')}</p>
         </section>
       </div>
     </main>
     {pdfImport && <PdfImport patterns={patterns} onSaved={pattern => void savePdfPattern(pattern)} onClose={() => setPdfImport(false)} />}
-    <footer class="site-footer"><span class="brand-small">fitter.</span><span>Střihy zůstávají v tomto prohlížeči. Nikam je neposíláme.</span>
-      <label class="theme-picker"><span>Vzhled</span><select value={themeChoice} onChange={e => chooseTheme(e.currentTarget.value as ThemeChoice)}>
-        <option value="auto">Automaticky</option><option value="light">Světlý</option><option value="dark">Tmavý</option>
+    <footer class="site-footer"><span class="brand-small">fitter.</span><span>{t('app.footerPrivacy')}</span>
+      <label class="theme-picker"><span>{t('theme.label')}</span><select value={themeChoice} onChange={e => chooseTheme(e.currentTarget.value as ThemeChoice)}>
+        <option value="auto">{t('theme.auto')}</option><option value="light">{t('theme.light')}</option><option value="dark">{t('theme.dark')}</option>
       </select></label></footer>
   </>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { PatternFile } from '../model/pattern';
 import { demo } from '../model/demo';
+import { t } from '../i18n';
 import { deleteQuestion } from '../model/prepare';
 
 // A library row. Deleting is two steps: "⋯" opens the menu, "Smazat střih…" asks inline, "Ponechat" has the focus.
@@ -11,15 +12,15 @@ function LibraryItem({ pattern, lines, onAdd, onDelete }: { pattern: PatternFile
   const close = () => { setMode('idle'); more.current?.focus(); };
   return <div class="library-item" onKeyDown={e => { if (e.key === 'Escape' && mode !== 'idle') { e.stopPropagation(); close(); } }}>
     <div class="library-row">
-      <div class="grow"><strong>{pattern.name}</strong><p>{pattern.id === demo.id ? 'Syntetické demo' : pattern.author ?? 'Vlastní střih'} · {pattern.pieces.length} dílů · {pattern.sizes.join(', ')}</p></div>
-      <button type="button" class="text-button" onClick={onAdd} aria-label={`Přidat ${pattern.name} do seznamu Co šiju`}>Do plánu</button>
-      {pattern.id !== demo.id && <button type="button" ref={more} class="icon-button" aria-label={`Další akce: ${pattern.name}`} aria-expanded={mode === 'menu'}
+      <div class="grow"><strong>{pattern.name}</strong><p>{t('library.itemSummary', { author: pattern.id === demo.id ? t('library.demoAuthor') : pattern.author ?? t('library.ownAuthor'), count: pattern.pieces.length, sizes: pattern.sizes.join(', ') })}</p></div>
+      <button type="button" class="text-button" onClick={onAdd} aria-label={t('library.addToPlanLabel', { name: pattern.name })}>{t('library.addToPlan')}</button>
+      {pattern.id !== demo.id && <button type="button" ref={more} class="icon-button" aria-label={t('library.moreActions', { name: pattern.name })} aria-expanded={mode === 'menu'}
         onClick={() => setMode(m => m === 'idle' ? 'menu' : 'idle')}>⋯</button>}
     </div>
-    {mode === 'menu' && <div class="library-menu"><button type="button" class="text-button danger-text" onClick={() => setMode('confirm')}>Smazat střih…</button></div>}
-    {mode === 'confirm' && <div class="delete-confirm" role="group" aria-label="Smazat střih"><p>{deleteQuestion(pattern.name, lines)}</p>
-      <div class="field-row"><button type="button" class="secondary danger-button" onClick={onDelete}>Smazat střih</button>
-        <button type="button" class="secondary" ref={keep} onClick={close}>Ponechat</button></div></div>}
+    {mode === 'menu' && <div class="library-menu"><button type="button" class="text-button danger-text" onClick={() => setMode('confirm')}>{t('library.deleteMenu')}</button></div>}
+    {mode === 'confirm' && <div class="delete-confirm" role="group" aria-label={t('library.deleteGroup')}><p>{deleteQuestion(pattern.name, lines)}</p>
+      <div class="field-row"><button type="button" class="secondary danger-button" onClick={onDelete}>{t('library.deleteConfirm')}</button>
+        <button type="button" class="secondary" ref={keep} onClick={close}>{t('library.keep')}</button></div></div>}
   </div>;
 }
 
@@ -30,14 +31,14 @@ export function Library({ messages, onDismissMessages, collapsible, startCollaps
 }) {
   const input = useRef<HTMLInputElement>(null), [dragging, setDragging] = useState(false);
   const content = <>
-    <button type="button" class="primary pdf-import-button" onClick={onImportPdf}>Přidat střih z PDF</button>
-    {dragging && <p class="drop-hint" role="status">Pusťte soubor střihu nebo zálohy (.json) sem.</p>}
+    <button type="button" class="primary pdf-import-button" onClick={onImportPdf}>{t('library.addFromPdf')}</button>
+    {dragging && <p class="drop-hint" role="status">{t('library.dropHint')}</p>}
     <div class="library-list">{patterns.map(p => <LibraryItem key={p.id} pattern={p} lines={linesUsing(p.id)} onAdd={() => onAdd(p)} onDelete={() => onDelete(p)} />)}</div>
-    <details class="advanced"><summary>Záloha a soubory</summary>
-      <p class="small">Střihy jsou uložené jen v tomto prohlížeči. Zálohu si uložte do souboru, ať o ně nepřijdete. Soubor můžete také přetáhnout na seznam střihů.</p>
-      <div class="field-row"><button type="button" class="text-button" onClick={onBackup}>Zálohovat vše do souboru</button>
-        <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>{loading ? 'Načítání…' : 'Nahrát soubor střihu nebo zálohy (.json)'}</button></div>
-      <input ref={input} class="visually-hidden" type="file" accept=".json,application/json" multiple aria-label="Nahrát soubory střihů nebo zálohy" onChange={e => {
+    <details class="advanced"><summary>{t('library.backupSummary')}</summary>
+      <p class="small">{t('library.backupInfo')}</p>
+      <div class="field-row"><button type="button" class="text-button" onClick={onBackup}>{t('library.backupAll')}</button>
+        <button type="button" class="text-button" disabled={loading} onClick={() => input.current?.click()}>{loading ? t('library.loading') : t('library.upload')}</button></div>
+      <input ref={input} class="visually-hidden" type="file" accept=".json,application/json" multiple aria-label={t('library.uploadLabel')} onChange={e => {
         const files = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void onImport(files);
       }} />
     </details>
@@ -50,9 +51,9 @@ export function Library({ messages, onDismissMessages, collapsible, startCollaps
       if (e.dataTransfer && !loading) void onImport(Array.from(e.dataTransfer.files));
     }}>
     {messages.length > 0 && <div class="notice" role="status"><div>{messages.map((message, i) => <p key={i}>{message}</p>)}</div>
-      <button type="button" class="icon-button" aria-label="Zavřít oznámení" onClick={onDismissMessages}>×</button></div>}
+      <button type="button" class="icon-button" aria-label={t('library.dismissNotice')} onClick={onDismissMessages}>×</button></div>}
     {collapsible
-      ? <details class="my-patterns" open={!startCollapsed}><summary><h3>Moje střihy</h3><span class="count">{patterns.length}</span></summary>{content}</details>
-      : <><div class="section-heading"><h3>Moje střihy</h3><span class="count">{patterns.length}</span></div>{content}</>}
+      ? <details class="my-patterns" open={!startCollapsed}><summary><h3>{t('library.title')}</h3><span class="count">{patterns.length}</span></summary>{content}</details>
+      : <><div class="section-heading"><h3>{t('library.title')}</h3><span class="count">{patterns.length}</span></div>{content}</>}
   </div>;
 }

@@ -11,6 +11,7 @@ import { rectangleProblems } from '../pdf/pieces';
 import type { PieceDraft, RectangleDraft } from '../pdf/pieces';
 import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
 import { area, bbox } from '../geom/polygon';
+import { fmt, plural, t } from '../i18n';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
@@ -24,10 +25,9 @@ import type { SaveMeta } from './PdfSave';
 interface BlockDraft { first: string; last: string; rows: string }
 // The assembled sheet: all paths, texts, and paths without page furniture.
 interface Sheet { paths: PdfPath[]; texts: PdfText[]; content: PdfPath[]; unverified: number }
-const STEPS = ['Stránky', 'Velikosti', 'Díly', 'Uložit'];
+const stepLabels = () => [t('pdf.step.pages'), t('pdf.step.sizes'), t('pdf.step.pieces'), t('pdf.step.save')];
 const draft = (b: LayoutBlock): BlockDraft => ({ first: String(b.pages[0]), last: String(b.pages[1]), rows: b.rows.join(',') });
 const number = (value: string) => Number(value.replace(',', '.'));
-const pagesWord = (n: number) => n === 1 ? 'stránku' : n < 5 ? 'stránky' : 'stránek';
 
 // Kept separate so the canvas outline and modal teardown can be checked without a DOM.
 export function tracePreviewPath(ctx: Pick<CanvasRenderingContext2D, 'moveTo' | 'lineTo' | 'closePath'>, path: PdfPath) {
@@ -263,17 +263,17 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null, com
     e.preventDefault();
   };
   return <div class="pdf-preview">
-    <div class="pdf-preview-heading"><h3>Slepený střih</h3></div>
-    <p id={hintId} class="small muted">Přibližujte gestem, Ctrl + kolečkem, dvojklikem nebo tlačítky. Přiblížený střih posunete tažením nebo kolečkem.</p>
+    <div class="pdf-preview-heading"><h3>{t('pdf.preview.title')}</h3></div>
+    <p id={hintId} class="small muted">{t('pdf.preview.hint')}</p>
     {sizesMode ? <p class="pdf-size-colors">{result?.sizes.map((size, i) => <span key={size} style={{ color: sizeColor(i) }}>● {size}</span>)}</p>
-      : <p class="small muted"><span class="pdf-seam verified" /> navazuje <span class="pdf-seam" /> nejisté – zkontrolujte · {sheet.placements.length} stránek</p>}
-    <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label="Náhled slepeného střihu" aria-describedby={hintId} onKeyDown={key}>
-      <canvas ref={canvas} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} dílů` : `Slepený střih: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`}
+      : <p class="small muted"><span class="pdf-seam verified" /> {t('pdf.preview.seamOk')} <span class="pdf-seam" /> {t('pdf.preview.seamUnsure')} · {t('pdf.preview.pageCount', { count: sheet.placements.length })}</p>}
+    <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label={t('pdf.preview.label')} aria-describedby={hintId} onKeyDown={key}>
+      <canvas ref={canvas} role="img" aria-label={sizesMode ? t('pdf.preview.outlines', { count: result?.candidates.length ?? 0 }) : t('pdf.preview.sheet', { pages: sheet.placements.length, seams: sheet.seams.filter(s => s.matched).length })}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDblClick={e => zoomAt(2, local(e))} />
       <div class="pdf-zoom">
-        <button type="button" class="secondary" aria-label="Přiblížit" disabled={atMax} onClick={() => zoomAt(1.5, centre())}>+</button>
-        <button type="button" class="secondary" aria-label="Oddálit" disabled={atFit} onClick={() => zoomAt(1 / 1.5, centre())}>−</button>
-        <button type="button" class="secondary" disabled={atFit} onClick={refit}>Celý střih</button>
+        <button type="button" class="secondary" aria-label={t('pdf.zoom.in')} disabled={atMax} onClick={() => zoomAt(1.5, centre())}>+</button>
+        <button type="button" class="secondary" aria-label={t('pdf.zoom.out')} disabled={atFit} onClick={() => zoomAt(1 / 1.5, centre())}>−</button>
+        <button type="button" class="secondary" disabled={atFit} onClick={refit}>{t('pdf.zoom.fit')}</button>
       </div>
     </div>
   </div>;
@@ -298,9 +298,9 @@ function SquarePicture({ doc, scale }: { doc: PdfDoc; scale: ScaleResult }) {
     for (const t of page.texts) ctx.fillText(t.str, t.x, t.y);
     ctx.strokeStyle = token('--focus'); ctx.lineWidth = 3 / k; ctx.strokeRect(x, y, w, h);
   }, [doc, scale, theme]);
-  return <canvas ref={canvas} class="pdf-square-picture" role="img" aria-label={`Nalezený kontrolní čtverec na stránce ${scale.page}`} />;
+  return <canvas ref={canvas} class="pdf-square-picture" role="img" aria-label={t('pdf.square.label', { page: scale.page ?? '' })} />;
 }
-const cmText = (cm: number) => String(Math.round(cm * 100) / 100).replace('.', ',');
+const cmText = (cm: number) => fmt.number(Math.round(cm * 100) / 100, 2);
 
 // Asks whether the print matches the detected scale instead of showing numbers.
 function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, pieceOk, onPieceOk, percent, onPercent }: {
@@ -313,18 +313,18 @@ function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, 
     <button type="button" class={value === false ? 'primary' : 'secondary'} aria-pressed={value === false} onClick={() => set(false)}>{nope}</button></div>;
   if (detected.source === 'square' && detected.squareCm) return <div class="pdf-scale-question">
     {detected.squarePt && <SquarePicture doc={doc} scale={detected} />}
-    <p id={name}><strong>Má tento čtverec na vašem výtisku {cmText(detected.squareCm)} cm?</strong></p>
-    {buttons(!no, v => onNo(!v), 'Ano', 'Ne / nevím')}
-    {no && <label class="field"><span>Kolik cm vám vyšlo?</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
-      <span class="small muted">Změřte stranu čtverce pravítkem na vytištěné stránce.</span></label>}
+    <p id={name}><strong>{t('pdf.scale.squareQuestion', { cm: cmText(detected.squareCm) })}</strong></p>
+    {buttons(!no, v => onNo(!v), t('pdf.yes'), t('pdf.noUnsure'))}
+    {no && <label class="field"><span>{t('pdf.scale.measured')}</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
+      <span class="small muted">{t('pdf.scale.measureHint')}</span></label>}
   </div>;
   // No square: 100 % is assumed; the largest traced piece offers a ruler check.
   const largest = result?.candidates.map(c => ({ c, ring: c.sizes[c.refSize] })).filter(x => x.ring).sort((a, b) => area(b.ring) - area(a.ring))[0];
   const dims = largest && (() => { const b = bbox(largest.ring); return `${cmText(b.width * detected.cmPerPt)} × ${cmText(b.height * detected.cmPerPt)}`; })();
   return <div class="pdf-scale-question">
-    <p class="small">Kontrolní čtverec jsme nenašli. Počítáme s tiskem ve skutečné velikosti (100 %).</p>
-    {largest && dims && <><p id={name}><strong>Pro kontrolu: díl „{largest.c.labels[0] ?? `Díl ${largest.c.id}`}“ by měl měřit asi {dims} cm. Souhlasí to?</strong></p>{buttons(pieceOk, onPieceOk, 'Ano', 'Ne')}</>}
-    {pieceOk === false && <label class="field"><span>Střih je zvětšený / zmenšený na (%)</span><input type="text" inputMode="decimal" value={percent} placeholder="100" onInput={e => onPercent(e.currentTarget.value)} /></label>}
+    <p class="small">{t('pdf.scale.noSquare')}</p>
+    {largest && dims && <><p id={name}><strong>{t('pdf.scale.pieceQuestion', { name: largest.c.labels[0] ?? t('pdf.piece.title', { id: largest.c.id }), dims })}</strong></p>{buttons(pieceOk, onPieceOk, t('pdf.yes'), t('pdf.no'))}</>}
+    {pieceOk === false && <label class="field"><span>{t('pdf.scale.percent')}</span><input type="text" inputMode="decimal" value={percent} placeholder="100" onInput={e => onPercent(e.currentTarget.value)} /></label>}
   </div>;
 }
 
@@ -389,9 +389,9 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
       const scale = resolved.scale;
       const options = { cmPerPt: scale.cmPerPt, gapMm: number(gap), resolutionMm: number(resolution), minAreaCm2: number(minArea) };
       if (!gap.trim() || !resolution.trim() || !minArea.trim() || !Object.values(options).every(Number.isFinite) || options.gapMm < 0 || options.gapMm > 6 ||
-        options.resolutionMm < 0.25 || options.resolutionMm > 1 || options.minAreaCm2 < 0) throw new Error('Mezery: 0–6 mm; rastr: 0,25–1 mm; plocha: alespoň 0 cm².');
+        options.resolutionMm < 0.25 || options.resolutionMm > 1 || options.minAreaCm2 < 0) throw new Error(t('pdf.sizes.settingsRange'));
       return { options, message: '' };
-    } catch (e) { return { options: null, message: e instanceof Error ? e.message : 'Zkontrolujte nastavení.' }; }
+    } catch (e) { return { options: null, message: e instanceof Error ? e.message : t('pdf.sizes.checkSettings') }; }
   }, [detected, scaleNo, measured, pieceOk, percent, gap, resolution, minArea]);
   const selected = Object.values(assignments).some(s => s.trim());
   useEffect(() => {
@@ -409,45 +409,45 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
           if ('result' in event.data) onResult(event.data.result); else if ('error' in event.data) setError(event.data.error);
           setBusy(false); worker?.terminate();
         };
-        worker.onerror = () => { setError('Obkreslení se nezdařilo. Zkuste hrubší rastr nebo menší arch.'); setBusy(false); worker?.terminate(); };
+        worker.onerror = () => { setError(t('pdf.sizes.traceFailedHint')); setBusy(false); worker?.terminate(); };
         const request: TraceRequest = { paths: sheet.content, texts: sheet.texts, assignments, options, scale: detected, excludeScaleMarks };
         worker.postMessage(request);
-      } catch (e) { setError(e instanceof Error ? e.message : 'Obkreslení se nezdařilo.'); setBusy(false); worker?.terminate(); }
+      } catch (e) { setError(e instanceof Error ? e.message : t('pdf.sizes.traceFailed')); setBusy(false); worker?.terminate(); }
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); worker?.terminate(); };
   }, [active, sheet, assignments, settings, selected, onResult, detected, excludeScaleMarks]);
   const cmPerPt = settings.options?.cmPerPt ?? detected.cmPerPt;
   return <div class="pdf-size-workspace"><div class="pdf-size-controls">
-    <h3>Styly čar → velikosti</h3><p class="small muted">Zadejte např. 42, M nebo uni. Více velikostí oddělte čárkou (S, M, L). U střihu s více velikostmi znamená „uni“ (nebo „vše“) čáru společnou všem velikostem: lem, přehyb, jednovelikostní díl. Prázdné pole znamená, že styl není střihová čára. Více stylů může patřit jedné velikosti. Najetím na řádek se styl zvýrazní v náhledu, kliknutím se zafixuje (dalším kliknutím zrušíte).</p>
-    <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>Styl</th><th>Cesty / délka</th><th>Velikost</th></tr></thead>
+    <h3>{t('pdf.sizes.title')}</h3><p class="small muted">{t('pdf.sizes.help')}</p>
+    <div class="pdf-table-scroll"><table class="pdf-legend"><thead><tr><th>{t('pdf.legend.style')}</th><th>{t('pdf.legend.paths')}</th><th>{t('pdf.legend.size')}</th></tr></thead>
       <tbody>{legend.map((entry, i) => <tr key={entry.key} class={[highlight === entry.key && 'highlighted', pinned === entry.key && 'pinned'].filter(Boolean).join(' ') || undefined}
-        onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={`${entry.kind === 'fill' ? 'Výplň' : 'Čára'} ${entry.width.toFixed(2)} pt, ${entry.dash.length ? 'čárkovaná' : 'plná'}`}>
+        onClick={e => { const typing = e.target instanceof HTMLInputElement; setPinned(k => typing || k !== entry.key ? entry.key : null); }} onMouseEnter={() => setHovered(entry.key)} onMouseLeave={() => setHovered(k => k === entry.key ? null : k)}><td><svg viewBox="0 0 96 24" width="96" height="24" role="img" aria-label={t('pdf.legend.styleLabel', { kind: t(entry.kind === 'fill' ? 'pdf.legend.fill' : 'pdf.legend.line'), width: entry.width.toFixed(2), dash: t(entry.dash.length ? 'pdf.legend.dashed' : 'pdf.legend.solid') })}>
         {entry.kind === 'fill' ? <rect x="4" y="11" width="88" height="2" fill={inkColor(entry.color, theme === 'dark')} />
           : <line x1="4" y1="12" x2="92" y2="12" stroke={inkColor(entry.color, theme === 'dark')} stroke-width={Math.max(0.5, entry.width)} stroke-dasharray={entry.dash.join(' ')} />}
-      </svg><span class="small muted">{entry.kind === 'fill' ? 'Výplň' : `${entry.width.toFixed(2)} pt`}</span></td>
+      </svg><span class="small muted">{entry.kind === 'fill' ? t('pdf.legend.fill') : `${entry.width.toFixed(2)} pt`}</span></td>
         <td>{entry.paths}<span class="small muted">{(entry.lengthPt * cmPerPt).toFixed(1)} cm</span></td>
-        <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={80} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
-    <h3>Měřítko</h3>
+        <td><input aria-label={t('pdf.legend.sizeFor', { n: i + 1 })} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={80} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
+    <h3>{t('pdf.scale.title')}</h3>
     <ScaleQuestion doc={doc} detected={detected} result={result} no={scaleNo} onNo={setScaleNo} measured={measured} onMeasured={setMeasured}
       pieceOk={pieceOk} onPieceOk={setPieceOk} percent={percent} onPercent={setPercent} />
-    <details class="pdf-advanced"><summary>Pokročilé</summary>
-      <p class="small muted">Aktuálně {cmPerPt.toFixed(6)} cm/pt · {(cmPerPt / CM_PER_PT * 100).toFixed(2)} %</p>
-      <label class="pdf-scale-marks"><input type="checkbox" checked={excludeScaleMarks} onChange={e => setExcludeScaleMarks(e.currentTarget.checked)} /> Vynechat kontrolní čtverce</label>
-      <p class="small muted">Volba vynechá nalezený čtverec a jeho kopie. Vypněte ji, pokud chybí stejně velký čtvercový díl. Čárkované střihové čáry se obkreslují souvisle.</p>
+    <details class="pdf-advanced"><summary>{t('pdf.advanced')}</summary>
+      <p class="small muted">{t('pdf.scale.current', { cmPerPt: cmPerPt.toFixed(6), percent: (cmPerPt / CM_PER_PT * 100).toFixed(2) })}</p>
+      <label class="pdf-scale-marks"><input type="checkbox" checked={excludeScaleMarks} onChange={e => setExcludeScaleMarks(e.currentTarget.checked)} /> {t('pdf.scale.excludeMarks')}</label>
+      <p class="small muted">{t('pdf.scale.excludeHelp')}</p>
     </details>
-    <h3>Obkreslení</h3><div class="pdf-trace-settings">
-      <label class="field"><span>Zacelit mezery (mm)</span><input type="number" min="0" max="6" step="0.25" value={gap} onInput={e => setGap(e.currentTarget.value)} /></label>
-      <label class="field"><span>Krok rastru (mm)</span><input type="number" min="0.25" max="1" step="0.25" value={resolution} onInput={e => setResolution(e.currentTarget.value)} /></label>
-      <label class="field"><span>Min. plocha (cm²)</span><input type="number" min="0" step="1" value={minArea} onInput={e => setMinArea(e.currentTarget.value)} /></label>
+    <h3>{t('pdf.trace.title')}</h3><div class="pdf-trace-settings">
+      <label class="field"><span>{t('pdf.trace.gap')}</span><input type="number" min="0" max="6" step="0.25" value={gap} onInput={e => setGap(e.currentTarget.value)} /></label>
+      <label class="field"><span>{t('pdf.trace.step')}</span><input type="number" min="0.25" max="1" step="0.25" value={resolution} onInput={e => setResolution(e.currentTarget.value)} /></label>
+      <label class="field"><span>{t('pdf.trace.minArea')}</span><input type="number" min="0" step="1" value={minArea} onInput={e => setMinArea(e.currentTarget.value)} /></label>
     </div>
-    {(result ? sheetProblem(result) : probeProblem) && <div class="warning" role="alert"><p>Na tomto archu jsou díly všech velikostí nakreslené přes sebe stejnou čarou. Takový střih zatím neumíme načíst.</p>
-      <p class="small">Zkuste verzi střihu s vrstvami nebo s každou velikostí zvlášť, pokud ji prodejce nabízí. Případně jste jedné velikosti přiřadili čáry více velikostí. Můžete také zkusit vybrat jediný díl.</p></div>}
+    {(result ? sheetProblem(result) : probeProblem) && <div class="warning" role="alert"><p>{t('pdf.sizes.overlap')}</p>
+      <p class="small">{t('pdf.sizes.overlapHint')}</p></div>}
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
-    <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno dílů: ${result.candidates.length}` : ''}</p>
+    <p role="status" class="small">{busy ? t('pdf.sizes.tracing') : suggesting && !selected ? t('pdf.sizes.searching') : !selected ? t('pdf.sizes.assign') : result ? t('pdf.sizes.found', { count: result.candidates.length }) : ''}</p>
   </div><div class="pdf-size-results"><Preview doc={doc} layout={layout} sizesMode result={result} highlight={highlight} companions={companions} />
-    {result && <section><h3>Nalezené díly</h3>{!result.candidates.length ? <p class="muted">Žádný uzavřený díl. Zkontrolujte styly, mezery a rozložení stránek.</p> :
-      <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Díl</th><th>Velikost</th><th>Plocha (cm²)</th><th>Šířka × výška (cm)</th></tr></thead><tbody>
+    {result && <section><h3>{t('pdf.found.title')}</h3>{!result.candidates.length ? <p class="muted">{t('pdf.found.none')}</p> :
+      <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>{t('pdf.found.piece')}</th><th>{t('pdf.found.size')}</th><th>{t('pdf.found.area')}</th><th>{t('pdf.found.dimensions')}</th></tr></thead><tbody>
         {result.candidates.flatMap(c => Object.entries(c.sizes).map(([size, ring]) => {
           const b = bbox(ring), k = result.cmPerPt;
           return <tr key={`${c.id}:${size}`}><th>{c.id}</th><td style={{ color: sizeColor(result.sizes.indexOf(size)) }}>{size}</td><td>{(area(ring) * k * k).toFixed(1)}</td><td>{(b.width * k).toFixed(1)} × {(b.height * k).toFixed(1)}</td></tr>;
@@ -485,7 +485,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       // The same validation drives both the editor and programmatic placement.
       placePages(doc, layout);
       return { layout, message: '' };
-    } catch (e) { return { layout: null, message: e instanceof Error ? e.message : 'Zkontrolujte bloky.' }; }
+    } catch (e) { return { layout: null, message: e instanceof Error ? e.message : t('pdf.layout.check') }; }
   }, [doc, blocks, step]);
   const unused = doc && edited.layout ? unusedPages(doc, edited.layout) : [];
   const showEditors = manual || !detected?.confident || !edited.layout;
@@ -500,16 +500,16 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
   const built = useMemo(() => {
     if (stage !== 4 || !traced || !pieces || !meta) return null;
     try {
-      if (meta.id.trim() === demo.id) throw new Error('ID střihu je vyhrazené pro vestavěné demo.');
+      if (meta.id.trim() === demo.id) throw new Error(t('pdf.build.demoId'));
       const whole = buildPattern(traced, pieces.drafts, { ...meta, id: meta.id.trim(), source: name }, pieces.rectangles);
       // Piece ids are built in draft order: remember which candidate each came from.
       const candidates = new Map(whole.pieces.map((p, i) => [p.id, pieces.drafts.filter(d => d.include)[i]?.candidateId]));
       const pattern = applySkips(whole, skips.map(s => s.skip)), problems = checkPieces(pattern);
       if (problems.length) return { pattern: null, error: '', problems, candidates };
-      if (!pattern.pieces.length) return { pattern: null, error: 'Nezůstal žádný díl, který by šel uložit.', problems, candidates };
+      if (!pattern.pieces.length) return { pattern: null, error: t('pdf.build.nothingLeft'), problems, candidates };
       parsePatternFile(pattern);
       return { pattern, error: '', problems, candidates };
-    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : 'Střih nelze sestavit.', problems: [], candidates: new Map<string, number | undefined>() }; }
+    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : t('pdf.build.failed'), problems: [], candidates: new Map<string, number | undefined>() }; }
   }, [stage, traced, pieces, meta, name, skips]);
   // A repeated trace of the same sheet gives the same result: keep the user's edits then.
   function toPieces() {
@@ -549,9 +549,9 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       console.error('PDF import failed', e);
       if (request.current !== id) return;
       const name = e instanceof Error ? e.name : '';
-      setError(name === 'PasswordException' ? 'PDF je chráněné heslem. Otevřete ho bez hesla a uložte znovu.'
-        : name === 'InvalidPDFException' ? 'Soubor není platné PDF.'
-        : `PDF se nepodařilo načíst (${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}).`);
+      setError(name === 'PasswordException' ? t('pdf.error.password')
+        : name === 'InvalidPDFException' ? t('pdf.error.invalid')
+        : t('pdf.error.load', { cause: e instanceof Error ? `${e.name}: ${e.message}` : String(e) }));
     }
     finally { if (request.current === id) setBusy(false); }
   }
@@ -559,46 +559,46 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
     setBlocks(prev => prev.map((block, i) => i === index ? { ...block, [field]: value } : block));
   }
   return <dialog ref={dialog} class="pdf-dialog" aria-labelledby="pdf-title" onCancel={e => { e.preventDefault(); onClose(); }}>
-    <div class="pdf-header"><div><p class="eyebrow">Knihovna střihů</p><h2 id="pdf-title">Import PDF</h2></div>
-      <button type="button" class="secondary" onClick={onClose}>Zavřít</button></div>
-    <ol class="pdf-steps" aria-label="Kroky importu">{STEPS.map((label, i) => <li key={label} aria-current={stage === i + 1 ? 'step' : undefined}
+    <div class="pdf-header"><div><p class="eyebrow">{t('pdf.eyebrow')}</p><h2 id="pdf-title">{t('pdf.title')}</h2></div>
+      <button type="button" class="secondary" onClick={onClose}>{t('pdf.close')}</button></div>
+    <ol class="pdf-steps" aria-label={t('pdf.stepsLabel')}>{stepLabels().map((label, i) => <li key={label} aria-current={stage === i + 1 ? 'step' : undefined}
       aria-disabled={i + 1 > stage && !ready[i] ? 'true' : undefined}>{i + 1} · {label}</li>)}</ol>
-    <p class="small muted">PDF zůstává v tomto prohlížeči. Připravte arch, přiřaďte styly velikostem, zkontrolujte díly a uložte střih do knihovny.</p>
-    {stage === 1 && <label class="field pdf-file"><span>Vybrat PDF</span><input type="file" accept=".pdf,application/pdf" onChange={e => { void open(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} /></label>}
-    {busy && <p role="status">Načítám {name} a hledám návaznost stránek…</p>}
+    <p class="small muted">{t('pdf.intro')}</p>
+    {stage === 1 && <label class="field pdf-file"><span>{t('pdf.choose')}</span><input type="file" accept=".pdf,application/pdf" onChange={e => { void open(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} /></label>}
+    {busy && <p role="status">{t('pdf.loading', { name })}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     {stage === 1 && doc && detected && <>
-      {!doc.pages.some(p => p.paths.length) && <p class="warning">PDF neobsahuje vektorové cesty. Obrázkové skeny zatím nelze skládat podle obrysů.</p>}
+      {!doc.pages.some(p => p.paths.length) && <p class="warning">{t('pdf.noVectors')}</p>}
       {!showEditors && edited.layout && sheet ? <div class="pdf-confirm">
-        <p class="pdf-summary"><strong>{name}</strong><br />Složili jsme {doc.pages.length - unused.length} {pagesWord(doc.pages.length - unused.length)} do jednoho archu. Vypadá to správně?
-          {sheet.unverified > 0 && <> Nejistých spojů: {sheet.unverified}.</>}{unused.length > 0 && <> Nepoužité stránky: {unused.length}.</>}</p>
+        <p class="pdf-summary"><strong>{name}</strong><br />{plural('pdf.confirm.summary', doc.pages.length - unused.length)}
+          {sheet.unverified > 0 && <> {t('pdf.confirm.unverified', { count: sheet.unverified })}</>}{unused.length > 0 && <> {t('pdf.confirm.unused', { count: unused.length })}</>}</p>
         <Preview doc={doc} layout={edited.layout} />
-        <div class="pdf-answer"><button type="button" class="primary" onClick={() => setStage(2)}>Ano, pokračovat</button>
-          <button type="button" class="secondary" onClick={() => setManual(true)}>Ne, upravit ručně</button></div>
+        <div class="pdf-answer"><button type="button" class="primary" onClick={() => setStage(2)}>{t('pdf.confirm.yes')}</button>
+          <button type="button" class="secondary" onClick={() => setManual(true)}>{t('pdf.confirm.edit')}</button></div>
       </div> : <>
-        <p class="pdf-summary"><strong>{name}</strong> · Počet stránek: {doc.pages.length}</p>
-        <div class="pdf-workspace"><div class="pdf-editor"><h3 ref={editors} tabIndex={-1}>Bloky stránek</h3>
-          {!manual && <p class="warning" role="status">{edited.layout ? 'Rozložení stránek se nepodařilo rozpoznat jistě. Zkontrolujte ho a podle potřeby upravte bloky.' : 'Rozložení stránek je třeba opravit.'}</p>}
-          <p class="small muted">Detekce: {detected.source}. Rozložení vždy zkontrolujte v náhledu.</p>
-          <p class="small muted">Každý blok má rozsah stránek a počty stránek v řádcích (např. 2,4,4). Řádky jsou zarovnané vlevo; bloky leží vedle sebe.</p>
-          {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>Blok {i + 1}</legend>
-            <div class="field-row"><label class="field"><span>Od stránky</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>
-              <label class="field"><span>Do stránky</span><input type="number" min="1" max={doc.pages.length} value={b.last} onInput={e => update(i, 'last', e.currentTarget.value)} /></label></div>
-            <label class="field"><span>Stránek v jednotlivých řádcích</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
-            <button type="button" class="text-button" onClick={() => setBlocks(prev => prev.filter((_, n) => n !== i))}>Odebrat blok {i + 1}</button>
+        <p class="pdf-summary"><strong>{name}</strong> · {t('pdf.pageCountLabel', { count: doc.pages.length })}</p>
+        <div class="pdf-workspace"><div class="pdf-editor"><h3 ref={editors} tabIndex={-1}>{t('pdf.blocks.title')}</h3>
+          {!manual && <p class="warning" role="status">{t(edited.layout ? 'pdf.blocks.unsure' : 'pdf.blocks.fix')}</p>}
+          <p class="small muted">{t('pdf.blocks.detection', { source: detected.source })}</p>
+          <p class="small muted">{t('pdf.blocks.help')}</p>
+          {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>{t('pdf.block.title', { n: i + 1 })}</legend>
+            <div class="field-row"><label class="field"><span>{t('pdf.block.from')}</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>
+              <label class="field"><span>{t('pdf.block.to')}</span><input type="number" min="1" max={doc.pages.length} value={b.last} onInput={e => update(i, 'last', e.currentTarget.value)} /></label></div>
+            <label class="field"><span>{t('pdf.block.rows')}</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
+            <button type="button" class="text-button" onClick={() => setBlocks(prev => prev.filter((_, n) => n !== i))}>{t('pdf.block.remove', { n: i + 1 })}</button>
           </fieldset>)}
-          <div class="pdf-block-actions"><button type="button" class="secondary" onClick={() => setBlocks(prev => [...prev, { first: '', last: '', rows: '' }])}>+ Přidat blok</button>
-            <button type="button" class="text-button" onClick={() => setBlocks([{ first: '1', last: String(doc.pages.length), rows: '' }])}>Zadat vlastní bloky</button>
-            <button type="button" class="text-button" onClick={() => apply(detected.layout)}>Obnovit detekci</button></div>
-          {unused.length > 0 && <section><h3>Nepoužité stránky</h3>
-            <p class="small muted">Tyto stránky nejsou v aktuálních blocích. Můžete je přidat úpravou rozsahů nebo přidáním bloku.</p>
-            <ul class="pdf-unused" aria-label="Nepoužité stránky">{unused.map(page => <li key={page}>Stránka {page}</li>)}</ul>
+          <div class="pdf-block-actions"><button type="button" class="secondary" onClick={() => setBlocks(prev => [...prev, { first: '', last: '', rows: '' }])}>{t('pdf.block.add')}</button>
+            <button type="button" class="text-button" onClick={() => setBlocks([{ first: '1', last: String(doc.pages.length), rows: '' }])}>{t('pdf.block.custom')}</button>
+            <button type="button" class="text-button" onClick={() => apply(detected.layout)}>{t('pdf.block.restore')}</button></div>
+          {unused.length > 0 && <section><h3>{t('pdf.unused.title')}</h3>
+            <p class="small muted">{t('pdf.unused.help')}</p>
+            <ul class="pdf-unused" aria-label={t('pdf.unused.title')}>{unused.map(page => <li key={page}>{t('pdf.unused.page', { page })}</li>)}</ul>
           </section>}
-          <h3>Krok stránek · překryv</h3><p class="small muted">Vzdálenost začátků sousedních stránek v bodech (pt). Menší krok znamená větší překryv. 1 mm = 2,835 pt.</p>
-          <div class="field-row">{['Vodorovně (pt)', 'Svisle (pt)'].map((label, i) => <label class="field" key={label}><span>{label}</span><input type="text" inputMode="decimal" value={step[i]} onInput={e => { const value = e.currentTarget.value; setStep(prev => prev.map((v, n) => n === i ? value : v)); }} /></label>)}</div>
-          <p class="small muted">Překryv první stránky: {(doc.pages[0].width - number(step[0])).toFixed(2)} × {(doc.pages[0].height - number(step[1])).toFixed(2)} pt.</p>
+          <h3>{t('pdf.step.title')}</h3><p class="small muted">{t('pdf.step.help')}</p>
+          <div class="field-row">{[t('pdf.step.horizontal'), t('pdf.step.vertical')].map((label, i) => <label class="field" key={label}><span>{label}</span><input type="text" inputMode="decimal" value={step[i]} onInput={e => { const value = e.currentTarget.value; setStep(prev => prev.map((v, n) => n === i ? value : v)); }} /></label>)}</div>
+          <p class="small muted">{t('pdf.step.overlap', { width: (doc.pages[0].width - number(step[0])).toFixed(2), height: (doc.pages[0].height - number(step[1])).toFixed(2) })}</p>
           {edited.message && <p class="warning" role="alert">{edited.message}</p>}
-        </div>{edited.layout ? <Preview doc={doc} layout={edited.layout} /> : <p class="muted">Náhled se zobrazí po opravě bloků a kroku.</p>}</div>
+        </div>{edited.layout ? <Preview doc={doc} layout={edited.layout} /> : <p class="muted">{t('pdf.preview.pending')}</p>}</div>
       </>}
     </>}
     {doc && edited.layout && sheet && <div hidden={stage !== 2}><Sizes doc={doc} layout={edited.layout} sheet={sheet} active={stage === 2} result={traced} onResult={setTraced} /></div>}
@@ -607,10 +607,10 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
       onChange={(index, patch) => setPieces(prev => prev && { ...prev, drafts: prev.drafts.map((d, i) => i === index ? { ...d, ...patch } : d) })} />}
     {stage === 4 && meta && <Save meta={meta} onChange={setMeta} patterns={patterns} suggestedSeam={suggestedSeam} pattern={built?.pattern ?? null} error={built?.error ?? ''}
       problems={built?.problems ?? []} candidates={built?.candidates ?? new Map()} skipped={skips} onSkip={(skip, label) => setSkips(prev => [...prev, { skip, label }])} />}
-    <div class="pdf-footer"><span class="small muted">Krok {stage} ze 4 · {STEPS[stage - 1]}</span>
-      <div class="pdf-navigation">{stage > 1 && <button type="button" class="secondary" onClick={() => { if (stage === 4) setSkips([]); setStage(stage - 1); }}>Zpět</button>}
-        {stage < 4 ? <button type="button" class="primary" disabled={!ready[stage]} onClick={next}>Další</button> : <>
-          <button type="button" class="secondary" disabled={!built?.pattern} onClick={() => built?.pattern && downloadPattern(built.pattern)}>Stáhnout .json</button>
-          <button type="button" class="primary" disabled={!built?.pattern} onClick={() => built?.pattern && onSaved(built.pattern)}>Uložit do knihovny</button></>}</div></div>
+    <div class="pdf-footer"><span class="small muted">{t('pdf.footer.step', { stage, label: stepLabels()[stage - 1] })}</span>
+      <div class="pdf-navigation">{stage > 1 && <button type="button" class="secondary" onClick={() => { if (stage === 4) setSkips([]); setStage(stage - 1); }}>{t('pdf.back')}</button>}
+        {stage < 4 ? <button type="button" class="primary" disabled={!ready[stage]} onClick={next}>{t('pdf.next')}</button> : <>
+          <button type="button" class="secondary" disabled={!built?.pattern} onClick={() => built?.pattern && downloadPattern(built.pattern)}>{t('pdf.downloadJson')}</button>
+          <button type="button" class="primary" disabled={!built?.pattern} onClick={() => built?.pattern && onSaved(built.pattern)}>{t('pdf.saveToLibrary')}</button></>}</div></div>
   </dialog>;
 }
