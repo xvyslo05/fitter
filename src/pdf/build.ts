@@ -136,8 +136,8 @@ export function applySkips(pattern: PatternFile, skips: Skip[]): PatternFile {
 
 // Phrases that remove "none" are cut out before looking for "included" ("bez přídavků na švy"
 // must not count as "přídavky na švy"). Both kinds, or neither: unknown.
-const NONE = /ohne\s+nahtzugaben?|keine?\s+nahtzugaben?|nahtzugaben?\s+(?:ist|sind)\s+nicht\s+(?:enthalten|inbegriffen)|(?:zzgl\.?|zuzüglich)\s+nahtzugaben?|nahtzugaben?\s+(?:hinzufügen|zugeben)|bez\s+(?:švových\s+)?(?:přídavků|záložek)|přídavky\s+na\s+švy\s+(?:nejsou|není)|(?:přidejte|připočtěte|přičtěte|připočítejte)\s+(?:\p{L}+\s+)?přídavky|without\s+seam\s+allowances?|no\s+seam\s+allowances?|seam\s+allowances?\s+(?:is|are)\s+not\s+included|add\s+(?:\p{L}+\s+)?seam\s+allowances?|sans\s+(?:les\s+)?marges?\s+de\s+couture/giu;
-const INCLUDED = /nahtzugaben?\s+(?:(?:ist|sind)\s+)?(?:enthalten|inbegriffen|inklusive)|(?:inkl\.?|inklusive|mit)\s+nahtzugaben?|přídavky\s+na\s+švy|včetně\s+(?:švových\s+)?(?:přídavků|záložek)|seam\s+allowances?\s+(?:(?:is|are)\s+)?included|includ(?:es|ing)\s+(?:\p{L}+\s+)?seam\s+allowances?|marges?\s+de\s+couture\s+(?:incluses?|comprises?)/iu;
+const NONE = /ohne\s+nahtzugaben?|keine?\s+nahtzugaben?|nahtzugaben?\s+(?:ist|sind)\s+nicht\s+(?:enthalten|inbegriffen)|(?:zzgl\.?|zuzüglich)\s+nahtzugaben?|nahtzugaben?\s+(?:hinzufügen|zugeben)|bez\s+(?:švových\s+)?(?:přídavků|záložek)|přídavky\s+na\s+švy\s+(?:nejsou|není)|(?:přidejte|připočtěte|přičtěte|připočítejte)\s+(?:\p{L}+\s+)?přídavky|without\s+seam\s+allowances?|no\s+seam\s+allowances?|seam\s+allowances?\s+(?:is|are)\s+not\s+included|add\s+(?:\p{L}+\s+)?seam\s+allowances?|sans\s+(?:les\s+)?marges?\s+de\s+couture|(?<!\p{L})sa\s+(?:(?:is|are)\s+)?not\s+included|(?<!\p{L})(?:no|without)\s+sa(?!\p{L})/giu;
+const INCLUDED = /nahtzugaben?\s+(?:(?:ist|sind)\s+)?(?:enthalten|inbegriffen|inklusive)|(?:inkl\.?|inklusive|mit)\s+nahtzugaben?|přídavky\s+na\s+švy|včetně\s+(?:švových\s+)?(?:přídavků|záložek)|seam\s+allowances?\s+(?:(?:is|are)\s+)?included|includ(?:es|ing)\s+(?:(?:an?|the)\s+)?(?:\d[\d/.,\s]*(?:cm|mm|inch(?:es)?|in\.?|["”″])?\s*)?(?:\p{L}+\s+)?seam\s+allowances?|(?<!\p{L})sa\s+(?:(?:is|are)\s+)?included(?!\p{L})|marges?\s+de\s+couture\s+(?:incluses?|comprises?)/iu;
 export function suggestSeamAllowance(texts: PdfText[]): SeamAllowance {
   const text = texts.map(t => t.str).join(' ').replace(/\s+/g, ' '), rest = text.replace(NONE, ' ');
   const none = rest !== text, included = INCLUDED.test(rest);
@@ -164,7 +164,7 @@ export function uniqueId(base: string, taken: Iterable<string>): string {
   return id;
 }
 // Trailing file-name noise: paper formats and words like "střih" or "Schnittmuster".
-const NOISE = /[\s_–-]+(?:a[0-4]|us[\s_-]*letter|letter|legal|st[řr]ih|schnittmuster|pattern|ebook|print|copyshop)$/iu;
+const NOISE = /[\s_–-]+(?:a[0-4]|us[\s_-]*letter|letter|legal|st[řr]ih|schnittmuster|pattern|ebook|projector|copy[\s_-]*shop|print[\s_-]*at[\s_-]*home|print|copyshop)$/iu;
 // The PDF title unless it is empty or an application's file name, else the file name; trailing noise
 // is removed repeatedly, but a name made only of noise stays as it is.
 export function patternName(title: string | undefined, fileName: string): string {

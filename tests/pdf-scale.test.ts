@@ -41,6 +41,23 @@ describe('PDF scale', () => {
     for (const bad of [NaN, 0, -5, Infinity]) expect(resolveScale(none, { percent: bad })).toHaveProperty('error');
     expect(resolveScale(none, { ok: false, measuredCm: 5 })).toHaveProperty('error');
   });
+  it('reads inch labels and converts them to cm', async () => {
+    const two = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 144 144 re S BT /F1 12 Tf 20 25 Td (2" x 2") Tj ET' }])));
+    expect(two).toMatchObject({ source: 'square', squareCm: 5.08, measuredPt: 144 });
+    expect(Math.abs(two.cmPerPt / (2.54 / 72) - 1)).toBeLessThan(0.001);
+    const one = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 72 72 re S BT /F1 12 Tf 20 25 Td (1 inch test square) Tj ET' }])));
+    expect(one).toMatchObject({ source: 'square', squareCm: 2.54 });
+    // "in" counts as inches only after a number; a label that is not square stays unread.
+    const bare = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 144 144 re S BT /F1 12 Tf 20 25 Td (2 in) Tj ET' }])));
+    expect(bare).toMatchObject({ source: 'square', squareCm: 5.08 });
+    // A printed 4 in label on a square that is not 4 in wide is trusted over the standard sizes.
+    const mislabelled = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 140 140 re S BT /F1 12 Tf 20 25 Td (2 in x 2 in) Tj ET' }])));
+    expect(mislabelled).toMatchObject({ squareCm: 5.08, measuredPt: 140 });
+  });
+  it('snaps squares of 2 and 4 inches without a label', async () => {
+    expect(detectScale(await readPdf(pdfBytes([{ content: '10 10 m 154 10 l 154 154 l 10 154 l h S' }])))).toMatchObject({ source: 'square', squareCm: 5.08 });
+    expect(detectScale(await readPdf(pdfBytes([{ content: '10 10 m 298 10 l 298 298 l 10 298 l h S' }])))).toMatchObject({ source: 'square', squareCm: 10.16 });
+  });
   it('reads decimal input with a comma', () => {
     expect(parseDecimal('4,8')).toBe(4.8);
     expect(parseDecimal(' 4.8 ')).toBe(4.8);

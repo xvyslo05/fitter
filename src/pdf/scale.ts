@@ -2,7 +2,20 @@ import { area, bbox } from '../geom/polygon';
 import type { PdfDoc, PdfPath, PdfText, Pt, ScaleResult } from './types';
 
 export const CM_PER_PT = 2.54 / 72;
-const standards = [2.54, 3, 4, 5, 10];
+const standards = [2.54, 3, 4, 5, 5.08, 10, 10.16];
+const CM_PER_INCH = 2.54;
+// A number with its unit: "5 cm", "2\"", "1 inch", "2 in."; "in" counts only right after a number and not before a word.
+const LABEL_UNIT = '(cm\\b|inch(?:es)?(?!\\p{L})|["”″]|in\\.|in(?!\\p{L})(?!\\s+(?![x×]\\s*\\d)\\p{L}))';
+const LABEL = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*${LABEL_UNIT}?(?:\\s*[x×]\\s*(\\d+(?:[.,]\\d+)?)\\s*${LABEL_UNIT}?)?`, 'giu');
+// The side in cm of a "N cm", "N x N cm", "2\" x 2\"" or "1 inch" label; undefined when the label is not a square.
+function labelCm(str: string): number | undefined {
+  for (const m of str.matchAll(LABEL)) {
+    const unit = m[4] ?? m[2];
+    if (!unit) continue;
+    const factor = /^c/i.test(unit) ? 1 : CM_PER_INCH, a = Number(m[1].replace(',', '.')), b = m[3] === undefined ? a : Number(m[3].replace(',', '.'));
+    return Math.abs(a - b) < 0.01 ? a * factor : undefined;
+  }
+}
 function squareSide(points: Pt[], closed: boolean): number | undefined {
   if (points.length < 4 || points.length > 5 || !closed) return;
   const b = bbox(points);
@@ -27,12 +40,10 @@ function squareCandidates(doc: PdfDoc) {
     for (const t of page.texts) {
       const distance = Math.hypot(Math.max(b.minX - t.x, 0, t.x - b.maxX), Math.max(b.minY - t.y, 0, t.y - b.maxY));
       if (distance > Math.max(80, side)) continue;
-      const m = /(\d+(?:[.,]\d+)?)\s*(?:[x×]\s*(\d+(?:[.,]\d+)?)\s*)?cm\b/i.exec(t.str);
-      const n = m ? Number(m[1].replace(',', '.')) : 0;
-      const squareLabel = m && (!m[2] || Math.abs(n - Number(m[2].replace(',', '.'))) < 0.01);
-      const weight = squareLabel && n > 0 && n <= 20 ? 4 : /kontroll|test|kontroln/i.test(t.str) ? 2 : 0;
+      const n = labelCm(t.str) ?? 0;
+      const weight = n > 0 && n <= 20 ? 4 : /kontroll|test|kontroln/i.test(t.str) ? 2 : 0;
       const value = weight / (1 + distance / side);
-      if (value > score) { score = value; namedCm = squareLabel && weight === 4 ? n : undefined; }
+      if (value > score) { score = value; namedCm = weight === 4 ? n : undefined; }
     }
     const physical = side * CM_PER_PT;
     const standard = standards.reduce((a, n) => Math.abs(n - physical) < Math.abs(a - physical) ? n : a);

@@ -202,6 +202,14 @@ describe('pattern metadata', () => {
     expect(suggestSeamAllowance(texts('Vorderteil', '2x zuschneiden'))).toBe('unknown');
     expect(suggestSeamAllowance(texts('Nahtzugabe enthalten', 'Saum ohne Nahtzugabe'))).toBe('unknown');
   });
+  it('reads English seam allowance phrases, with a measurement or SA', () => {
+    for (const lines of [['Pattern includes a 3/8" seam allowance'], ['5/8 inch seam allowances are included'], ['Includes 1.5 cm seam allowance'], ['SA included'], ['Including 1 in. seam allowances']])
+      expect(suggestSeamAllowance(texts(...lines)), lines.join(' ')).toBe('included');
+    for (const lines of [['Add seam allowance'], ['Seam allowances are not included'], ['SA not included'], ['No SA']])
+      expect(suggestSeamAllowance(texts(...lines)), lines.join(' ')).toBe('none');
+    expect(suggestSeamAllowance(texts('Includes a 3/8" seam allowance', 'Add seam allowance to the hem'))).toBe('unknown');
+    expect(suggestSeamAllowance(texts('Sleeve', 'Cut 2'))).toBe('unknown');
+  });
   it('sorts sizes: numbers numerically, then S < M < L < XL < XXL, then text', () => {
     expect(sortSizes(['XL', '42', 'M', 'uni', '38', 'S', 'XXL', 'L', '104', '36/38', 'XS'])).toEqual(['38', '42', '104', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '36/38', 'uni']);
     expect(sortSizes(['3XL', '2XL', 'XL'])).toEqual(['XL', '2XL', '3XL']);
@@ -222,5 +230,12 @@ describe('pattern metadata', () => {
     expect(patternName(undefined, 'Sprint A3.pdf')).toBe('Sprint');
     expect(patternName(undefined, 'strih-A4.pdf')).toBe('strih A4');
     expect(patternName('Pattern', 'x.pdf')).toBe('Pattern');
+  });
+  it('strips English file-name noise: projector, copy shop, print at home', () => {
+    expect(patternName(undefined, 'Tee_Dress_Projector.pdf')).toBe('Tee Dress');
+    expect(patternName(undefined, 'Tee Dress Copy Shop.pdf')).toBe('Tee Dress');
+    expect(patternName(undefined, 'Tee-Dress-Print-At-Home.pdf')).toBe('Tee Dress');
+    expect(patternName(undefined, 'Tee Dress Print at Home A4.pdf')).toBe('Tee Dress');
+    expect(patternName(undefined, 'Projector.pdf')).toBe('Projector');
   });
 });

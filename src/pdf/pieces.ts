@@ -49,15 +49,23 @@ export const DEFAULT_MATERIAL = 'hlavní';
 
 // JS \b is ASCII-only; letter lookarounds keep Czech/German words whole.
 const FOLD = /bruch|(?<!\p{L})(?:st\.?\s?br|fold(?:ed)?|lom|lomu|přelož\p{L}*|přehyb\p{L}*|pli)(?!\p{L})/iu;
-const GRAIN = /faden(?:lauf|richtung)|(?<!\p{L})(?:grain|fl|vlákn\p{L}*|osnov\p{L}*|droit[\s-]fil|fil\s+droit)(?!\p{L})/iu;
-// "2x", "2 ×", "x 2", "cut 2", "2 mal" – but not "5x5" or "2 XL".
-const COUNT = /(?<![\d.,])(\d{1,3})\s*[x×](?![\p{L}\d]|\s*\d)|(?<![\p{L}\d]\s*)[x×]\s*(\d{1,3})(?![\d.,])|(?<!\p{L})cut\s*(\d{1,3})(?!\d)|(\d{1,3})\s*-?\s*mal(?!\p{L})/giu;
-const MEASURE = /\d\s*(?:cm|mm)(?!\p{L})|(?<!\p{L})(?:cm|mm|inch|zoll)(?!\p{L})|kontrol|testquadrat|maßstab|měřítk|(?<!\p{L})scale/iu;
+const GRAIN = /faden(?:lauf|richtung)|(?<!\p{L})(?:grain(?:line)?|selvedge|selvage|lengthwise|fl|vlákn\p{L}*|osnov\p{L}*|droit[\s-]fil|fil\s+droit)(?!\p{L})/iu;
+// "2x", "2 ×", "x 2", "cut 2", "cut two", "2 mal" – but not "5x5" or "2 XL".
+const COUNT = /(?<![\d.,])(\d{1,3})\s*[x×](?![\p{L}\d]|\s*\d)|(?<![\p{L}\d]\s*)[x×]\s*(\d{1,3})(?![\d.,])|(?<!\p{L})cut\s*(?:(\d{1,3})(?!\d)|(one|two|three|four|five|six)(?!\p{L}))|(\d{1,3})\s*-?\s*mal(?!\p{L})/giu;
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+// "pair" right after an English count doubles it.
+const PAIR = /^\s*pairs?(?!\p{L})/iu;
+// Inches count only right after a number; "cut 2 in lining" is not a measurement.
+const MEASURE = /\d\s*(?:cm|mm)(?!\p{L})|\d\s*(?:inch(?:es)?(?!\p{L})|["”″]|in\.|in(?!\p{L})(?!\s+(?![x×]\s*\d)\p{L}))|(?<!\p{L})(?:cm|mm|inch(?:es)?|zoll)(?!\p{L})|kontrol|testquadrat|test\s+square|maßstab|měřítk|(?<!\p{L})scale/iu;
 const SIZE_TOKEN = /^(?:\d+(?:[.,]\d+)?|x{0,3}[sl]|m|\d?xl|x{1,4}l|uni)$/i;
-const STOP = /^(?:(?:vy|na|u)?st[řr][ií]h\p{L}*|(?:zu)?schn\p{L}*|cut\p{L}*|couper|the|and|und|aus|from|each|jeweils|mal|times|pairs?|páry?|kus\p{L}*|stück|stk|gegengleich|spiegelverkehrt|zrcadl\p{L}*|mirror\p{L}*|revers\p{L}*|fois)$/iu;
+const STOP = /^(?:(?:vy|na|u)?st[řr][ií]h\p{L}*|(?:zu)?schn\p{L}*|cut\p{L}*|couper|the|and|und|aus|from|each|jeweils|mal|times|pairs?|páry?|kus\p{L}*|stück|stk|gegengleich|spiegelverkehrt|zrcadl\p{L}*|mirror\p{L}*|revers\p{L}*|fois|fabric|x{2,4}[sl])$/iu;
 // Printed Czech material words in any case form → dictionary form; other words stay as printed (lower case).
 const MATERIALS: [RegExp, string][] = [[/^podšív/, 'podšívka'], [/^vnějš/, 'vnější'], [/^vnitřn/, 'vnitřní'], [/^hlavn/, 'hlavní'],
   [/^vlizel/, 'vlizelín'], [/^výztu/, 'výztuha'], [/^kontrastn/, 'kontrastní'], [/^lát[kc]/, 'látka']];
+// English cut-instruction words (applied only to labels that contain "cut") → material.
+const ENGLISH_MATERIALS: [RegExp, string][] = [[/^(?:self|main|shell|fashion)$/, 'main'], [/^lining$/, 'lining'], [/^interfacing$/, 'interfacing'],
+  [/^contrast$/, 'contrast'], [/^(?:rib|ribbing)$/, 'rib'], [/^facing$/, 'facing']];
+const ENGLISH = /(?<!\p{L})cut(?!\p{L})/iu;
 
 export const openRing = (ring: Pt[]): Pt[] => ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1] ? ring.slice(0, -1) : ring;
 const distance = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -76,20 +84,22 @@ function textCentre(t: PdfText): Pt {
 }
 
 const words = (s: string) => s.split(/[^\p{L}]+/u).filter(w => w.length >= 3 && !STOP.test(w) && !FOLD.test(w) && !GRAIN.test(w));
-function material(word: string): string {
+function material(word: string, english = false): string {
   const w = word.toLocaleLowerCase('cs');
-  return MATERIALS.find(([r]) => r.test(w))?.[1] ?? w;
+  return MATERIALS.find(([r]) => r.test(w))?.[1] ?? (english ? ENGLISH_MATERIALS.find(([r]) => r.test(w))?.[1] : undefined) ?? w;
 }
 // Every "N×" of a cut instruction with the material printed after it; before the first count only a
 // known material word counts ("PODŠÍVKA 2x", but not "navíc 2x"). null = no material printed.
 function instructions(label: string): { material: string | null; count: number }[] {
   if (MEASURE.test(label)) return [];
-  const matches = [...label.matchAll(COUNT)];
+  const matches = [...label.matchAll(COUNT)], english = ENGLISH.test(label);
   return matches.flatMap((m, i) => {
-    const count = Number(m[1] ?? m[2] ?? m[3] ?? m[4]), before = i === 0 ? words(label.slice(0, m.index)).at(-1) : undefined;
-    const word = words(label.slice(m.index + m[0].length, matches[i + 1]?.index ?? label.length))[0] ??
-      (before && MATERIALS.some(([r]) => r.test(before.toLocaleLowerCase('cs'))) ? before : undefined);
-    return count > 0 ? [{ material: word ? material(word) : null, count }] : [];
+    const end = m.index + m[0].length, rest = label.slice(end, matches[i + 1]?.index ?? label.length), pair = PAIR.exec(rest);
+    const count = (m[4] ? NUMBER_WORDS[m[4].toLowerCase()] : Number(m[1] ?? m[2] ?? m[3] ?? m[5])) * (pair ? 2 : 1);
+    const before = i === 0 ? words(label.slice(0, m.index)).at(-1)?.toLocaleLowerCase('cs') : undefined;
+    const word = words(pair ? rest.slice(pair[0].length) : rest)[0] ??
+      (before && (MATERIALS.some(([r]) => r.test(before)) || english && ENGLISH_MATERIALS.some(([r]) => r.test(before))) ? before : undefined);
+    return count > 0 ? [{ material: word ? material(word, english) : null, count }] : [];
   });
 }
 function nameLike(label: string): boolean {
@@ -112,7 +122,7 @@ export function parseCutLabels(labels: string[], defaultMaterial = DEFAULT_MATER
   let hint: string | undefined;
   if (loose.length) {
     const count = Math.max(...loose.map(l => l.count));
-    const named = labels.filter(l => !titles.has(l) && !instructions(l).length).flatMap(words).map(material)
+    const named = labels.filter(l => !titles.has(l) && !instructions(l).length).flatMap(words).map(w => material(w))
       .find(m => MATERIALS.some(([, known]) => known === m) && !counts.has(m));
     if (named) counts.set(named, count);
     else if (counts.has(defaultMaterial)) hint = `Pokyn „${loose[0].label}“ neuvádí materiál – zkontrolujte počty.`;

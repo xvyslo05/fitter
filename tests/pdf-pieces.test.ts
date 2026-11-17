@@ -70,6 +70,56 @@ describe('cut labels', () => {
     for (const label of ['lomítko', 'folder', 'multiplier', 'vystřihnout 2x']) expect(parseCutLabels([label]).fold, label).toBe(false);
     expect(parseCutLabels(['1x im Bruch zuschneiden']).cut).toEqual([{ material: 'hlavní', count: 1 }]);
   });
+  it('reads English counts: "on fold", pairs, number words', () => {
+    expect(parseCutLabels(['FRONT', 'Cut 2 on fold'])).toMatchObject({ name: 'FRONT', cut: [{ material: 'hlavní', count: 2 }], fold: true });
+    expect(parseCutLabels(['Sleeve', 'Cut 1 pair lining'])).toMatchObject({ name: 'Sleeve', cut: [{ material: 'lining', count: 2 }] });
+    expect(parseCutLabels(['Sleeve', 'Cut 2 pairs']).cut).toEqual([{ material: 'hlavní', count: 4 }]);
+    expect(parseCutLabels(['Pocket', 'Cut two main, cut 2 interfacing'])).toMatchObject({ name: 'Pocket',
+      cut: [{ material: 'main', count: 2 }, { material: 'interfacing', count: 2 }] });
+    expect(parseCutLabels(['Cut Two']).cut).toEqual([{ material: 'hlavní', count: 2 }]);
+    expect(parseCutLabels(['Cut six lining']).cut).toEqual([{ material: 'lining', count: 6 }]);
+    // Not a count: a word that merely starts like a number word.
+    expect(parseCutLabels(['cut oneself']).cut).toEqual([{ material: 'hlavní', count: 1 }]);
+  });
+  it('maps English material words and skips filler', () => {
+    const cut = (label: string) => parseCutLabels([label]).cut;
+    for (const word of ['self', 'main', 'shell', 'fashion fabric']) expect(cut(`Cut 2 ${word}`), word).toEqual([{ material: 'main', count: 2 }]);
+    expect(cut('Cut 1 contrast')).toEqual([{ material: 'contrast', count: 1 }]);
+    expect(cut('Cut 2 ribbing')).toEqual([{ material: 'rib', count: 2 }]);
+    expect(cut('Cut 2 rib')).toEqual([{ material: 'rib', count: 2 }]);
+    expect(cut('Cut 2 facing')).toEqual([{ material: 'facing', count: 2 }]);
+    expect(cut('Cut 1 interfacing')).toEqual([{ material: 'interfacing', count: 1 }]);
+    // Filler: "fabric" alone is not a material; "in" and "of" are too short to be one.
+    expect(cut('Cut 2 fabric')).toEqual([{ material: 'hlavní', count: 2 }]);
+    expect(cut('Cut 2 in lining')).toEqual([{ material: 'lining', count: 2 }]);
+    expect(cut('Cut 2 of main fabric')).toEqual([{ material: 'main', count: 2 }]);
+    // A known English material before the count, only with "cut" in the label.
+    expect(cut('Lining cut 2')).toEqual([{ material: 'lining', count: 2 }]);
+    // Czech and German labels without "cut" keep their words as printed.
+    expect(cut('2x self')).toEqual([{ material: 'self', count: 2 }]);
+    expect(cut('2x Oberstoff')).toEqual([{ material: 'oberstoff', count: 2 }]);
+  });
+  it('does not read a size after the count as a material', () => {
+    for (const label of ['Cut 1 XL', 'Cut 1 XXL', 'Cut 1 XS', 'Cut 2 XXXL']) expect(parseCutLabels([label]).cut.map(c => c.material), label).toEqual(['hlavní']);
+    expect(parseCutLabels(['Cut 1 XXL']).cut).toEqual([{ material: 'hlavní', count: 1 }]);
+  });
+  it('treats "in" as inches only after a number, and recognises English measurements', () => {
+    expect(parseCutLabels(['Cut 2 in lining']).cut).toEqual([{ material: 'lining', count: 2 }]);
+    for (const label of ['2" x 2" test square', '1 inch', '2 in. x 2 in.', '2 in x 2 in', '2 inches', 'Test square', '4in']) expect(parseCutLabels(['Back', label]).name, label).toBe('Back');
+    for (const label of ['2" x 2" test square', '1 inch', '2 in. x 2 in.']) expect(parseCutLabels([label]).name, label).toBeUndefined();
+    // No count is read from a measurement.
+    expect(parseCutLabels(['Cut 2 x 2 in']).cut).toEqual([{ material: 'hlavní', count: 1 }]);
+    // Plain words with "in" stay names.
+    expect(parseCutLabels(['Pocket in Lining']).name).toBe('Pocket in Lining');
+  });
+  it('detects English fold words; CF and CB alone are not a fold', () => {
+    for (const label of ['Place on fold', 'Cut 2 on fold', 'CF on fold', 'Fold line', 'Place CB on fold', 'FOLD']) expect(parseCutLabels([label]).fold, label).toBe(true);
+    for (const label of ['CF', 'CB', 'Center front', 'cf 2', 'folder']) expect(parseCutLabels(['Back', label]).fold, label).toBe(false);
+    expect(parseCutLabels(['Back', 'CF']).name).toBe('Back');
+    // "fold line" is a fold hint, not grain, name or material.
+    expect(parseCutLabels(['Fold line', 'Cut 2']).cut).toEqual([{ material: 'hlavní', count: 2 }]);
+    expect(parseCutLabels(['Fold line']).name).toBeUndefined();
+  });
   it('names a piece by the first name-like label, skipping titles, instructions, sizes and scale text', () => {
     expect(parseCutLabels(['TAŠKA DEMO', 'vystřihnout 1x VNĚJŠÍ', '36 38 40', '5 x 5 cm', 'Stoffbruch', 'UCHO 1/2'], 'hlavní', new Set(['TAŠKA DEMO'])).name).toBe('UCHO 1/2');
     expect(parseCutLabels(['1', 'S M L', 'cm']).name).toBeUndefined();
@@ -146,6 +196,15 @@ describe('grain', () => {
     expect(angleOf([line([5, 5], [5, 30]), line([10, 20], [25, 34])])).toBe(90);
     expect(angleOf([line([5, 5], [7.5, 5])])).toBe(90);
     expect(angleOf([line([5, 5], [25, 5])])).toBe(0);
+  });
+  it('prefers a line labelled with an English grain word', () => {
+    for (const word of ['GRAINLINE', 'Grain line', 'Straight of grain', 'Selvedge', 'selvage', 'Lengthwise']) {
+      expect(angleOf([line([5, 5], [5, 30]), line([10, 20], [25, 34])], [text(word, 11, 22)]), word).toBeCloseTo(43.03, 1);
+    }
+    // Far from the line (more than 2 cm) the longest plain line wins.
+    expect(angleOf([line([5, 5], [5, 30]), line([10, 20], [25, 34])], [text('GRAINLINE', 11, 40)])).toBe(90);
+    // Grain words never name a piece or become a material.
+    expect(parseCutLabels(['GRAINLINE', 'Cut 2 Selvedge', 'Sleeve'])).toMatchObject({ name: 'Sleeve', cut: [{ material: 'hlavní', count: 2 }] });
   });
   it('ignores lines crossing the outline and cutting lines of other sizes', () => {
     expect(angleOf([line([-5, 5], [20, 30])])).toBe(90);
