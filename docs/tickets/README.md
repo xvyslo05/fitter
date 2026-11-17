@@ -1,6 +1,6 @@
 # fitter ticket briefs
 
-Twenty-eight work items from the November 2026 analysis. Each `NN-slug.md` is written for a worker who has not seen the analysis. Shared background lives here once; tickets refer to it.
+Twenty-nine work items from the November 2026 analysis. Each `NN-slug.md` is written for a worker who has not seen the analysis. Shared background lives here once; tickets refer to it.
 
 ## Shared background
 
@@ -50,6 +50,7 @@ These are the analyst's recommendations, not confirmed by the product owner. Eve
 | D10 | Licence and hosting notice | Open; no ticket depends on it | OPEN |
 | D11 | Grain tolerance value (ticket 21) | 3° | CONFIRM VALUE with the TUL notes |
 | D12 | Default gap between pieces (ticket 22) | 0.5 cm unchanged | CONFIRM VALUE with the TUL notes |
+| D13 | How fitter earns money (ticket 29) | none; candidates in the ticket | OPEN |
 
 ## Index
 
@@ -85,6 +86,7 @@ Executor: HC = head chef (design or needs conversation context), W = delegated w
 | [26](26-manual-drag-adjust.md) | Manual drag adjustment of a marker | M–L | – | HC | D7, D9 assumed |
 | [27](27-scale-yes-no.md) | Scale step as a yes/no question | S | – | W | D1 assumed |
 | [28](28-marker-rules-spec.md) | Marker rules from the TUL notes (no code) | S | – | HC | D11, D12 to confirm |
+| [29](29-monetization.md) | Monetization: choose a model and test it | S | – | HC + owner | D13 open |
 
 ## Recommended order
 
