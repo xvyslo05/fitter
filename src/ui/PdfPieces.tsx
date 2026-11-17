@@ -1,27 +1,45 @@
-import { useMemo } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { bbox, pointSegmentDistance } from '../geom/polygon';
-import { foldEdges, newRectangle, rectangleProblems, RECTANGLE_MAX_CM, sizeFolds } from '../pdf/pieces';
-import type { Edge, PieceDraft, RectangleDraft } from '../pdf/pieces';
-import type { PieceCandidate, Pt, TraceResult } from '../pdf/types';
+import { unionCells } from '../pdf/proposals';
+import { foldEdges, newRectangle, openRing, rectangleProblems, RECTANGLE_MAX_CM, sizeFolds, snapFoldAt } from '../pdf/pieces';
+import type { Edge, PieceDraft, RectangleDraft, VariantDraft } from '../pdf/pieces';
+import type { Cell, PieceCandidate, Pt, TraceResult } from '../pdf/types';
+import { cellOwners, isConnected, mapCells } from '../pdf/variants';
 import { sizeColor } from '../theme';
 
 const points = (ring: Pt[]) => ring.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const degrees = (n: number) => Number.isFinite(n) ? Math.round(n * 10) / 10 : '';
+// Cells under this area (cm2) are not tapped on their own; they follow their largest neighbour.
+const CELL_TAP_MIN_CM2 = 3;
+const variantFill = (index: number) => `var(--piece-${index % 6 + 1})`;
 
 // Checked before "Další"; buildPattern + parsePatternFile validate the rest in step 4.
-export function draftProblems(draft: PieceDraft): string[] {
+// `candidate` (with cells) lets it check that each variant's selected cells touch.
+export function draftProblems(draft: PieceDraft, candidate?: PieceCandidate): string[] {
   const problems: string[] = [];
   if (!draft.name.trim()) problems.push('Zadejte název dílu.');
   if (!draft.cut.length) problems.push('Přidejte alespoň jeden materiál.');
   if (draft.cut.some(c => !c.material.trim())) problems.push('Vyplňte název materiálu.');
   if (draft.cut.some(c => !Number.isInteger(c.count) || c.count < 1 || c.count > 1000)) problems.push('Počet kusů musí být celé číslo 1–1 000.');
   if (!Number.isFinite(draft.grainAngle)) problems.push('Zadejte úhel směru vlákna.');
+  const labels = draft.variants.map(v => v.label.trim().toLocaleLowerCase('cs')), named = labels.filter(Boolean);
+  if (named.length < labels.length) problems.push('Pojmenujte každou možnost dílu.');
+  if (new Set(named).size < named.length) problems.push('Názvy možností dílu se nesmí opakovat.');
+  draft.variants.forEach((v, i) => {
+    const name = v.label.trim() || `${i + 1}`, selections = Object.entries(v.cells).filter(([, ids]) => ids.length);
+    if (!selections.length) problems.push(`Možnost „${name}“ nemá vybrané části.`);
+    else if (selections.some(([size, ids]) => { const cells = candidate?.cells?.[size]; return cells && !isConnected(cells, ids); }))
+      problems.push(`Možnost „${name}“: Vybrané části na sebe nenavazují.`);
+  });
   return problems;
 }
 
 // Sheet-space preview: reference size filled, other sizes thin, straight edges clickable as fold.
-function Thumbnail({ result, candidate, draft, edges, folds, onPick }: {
-  result: TraceResult; candidate: PieceCandidate; draft: PieceDraft; edges: Edge[]; folds: Record<string, [Pt, Pt] | null>; onPick: (edge: number) => void;
+// Variant mode: the reference cells are buttons; `selected` are the active variant's reference cells (filled),
+// `owners` maps each cell to the tappable cell it follows, `mapped` is the active variant in the other sizes.
+interface CellPicker { cells: Cell[]; owners: Map<number, number>; selected: Set<number>; fill: string; mapped: Record<string, number[]>; onToggle: (owner: number) => void }
+function Thumbnail({ result, candidate, draft, edges, folds, picker, onPick }: {
+  result: TraceResult; candidate: PieceCandidate; draft: PieceDraft; edges: Edge[]; folds: Record<string, [Pt, Pt] | null>; picker?: CellPicker; onPick: (edge: number) => void;
 }) {
   const ref = candidate.sizes[candidate.refSize];
   const view = useMemo(() => {
@@ -35,18 +53,30 @@ function Thumbnail({ result, candidate, draft, edges, folds, onPick }: {
   const arrow = [[c[0] - d[0] * half, c[1] - d[1] * half], tip, wing(0.45), tip, wing(-0.45)] as Pt[];
   function pick(e: MouseEvent) {
     const svg = e.currentTarget as SVGSVGElement, m = svg.getScreenCTM();
-    if (!m || !edges.length) return;
+    if (!m || !edges.length || picker) return;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse()), at: Pt = [p.x, p.y];
     const distances = edges.map(edge => pointSegmentDistance(at, edge.a, edge.b)), best = distances.indexOf(Math.min(...distances));
     // Within about 16 screen pixels of the edge.
     if (distances[best] * Math.abs(m.a) <= 16) onPick(best);
   }
   const fold = draft.foldEdge === null ? undefined : edges[draft.foldEdge];
-  return <svg class={`pdf-thumb${edges.length ? ' pickable' : ''}`} viewBox={view} role="img" onClick={pick}
+  const hatch = Math.max(b.width, b.height) / 40, hatchId = `pdf-hatch-${candidate.id}`;
+  const taps = picker ? picker.cells.filter(c => picker.owners.get(c.id) === c.id) : [];
+  const toggleKey = (owner: number) => (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker!.onToggle(owner); } };
+  return <svg class={`pdf-thumb${edges.length && !picker ? ' pickable' : ''}`} viewBox={view} role={picker ? 'group' : 'img'} onClick={pick}
     aria-label={`Náhled kandidáta ${candidate.id}: ${Object.keys(candidate.sizes).length} velikostí, ${fold ? 'lom vyznačen' : 'bez lomu'}, vlákno ${degrees(draft.grainAngle)}°`}>
-    <polygon points={points(ref)} class="pdf-thumb-ref" vector-effect="non-scaling-stroke" />
+    {picker && <defs><pattern id={hatchId} patternUnits="userSpaceOnUse" width={hatch} height={hatch} patternTransform="rotate(45)">
+      <rect width={hatch} height={hatch} class="pdf-hatch-bg" /><line x1="0" y1="0" x2="0" y2={hatch} class="pdf-hatch-line" vector-effect="non-scaling-stroke" /></pattern></defs>}
+    {picker ? picker.cells.map(cell => {
+      const owner = picker.owners.get(cell.id)!, on = picker.selected.has(owner), tap = owner === cell.id;
+      return <g key={cell.id} class={`pdf-cell${on ? ' on' : ''}`} onClick={() => picker.onToggle(owner)}
+        {...(tap ? { role: 'button', tabIndex: 0, 'aria-pressed': on, 'aria-label': `Část ${taps.findIndex(t => t.id === cell.id) + 1}`, onKeyDown: toggleKey(owner) } : {})}>
+        <polygon points={points(cell.ring)} style={{ fill: on ? picker.fill : `url(#${hatchId})` }} vector-effect="non-scaling-stroke" /></g>;
+    }) : <polygon points={points(ref)} class="pdf-thumb-ref" vector-effect="non-scaling-stroke" />}
     {Object.entries(candidate.sizes).filter(([size]) => size !== candidate.refSize).map(([size, ring]) =>
       <polygon key={size} points={points(ring)} fill="none" style={{ stroke: sizeColor(result.sizes.indexOf(size)) }} stroke-width="1" vector-effect="non-scaling-stroke" />)}
+    {picker && Object.entries(picker.mapped).flatMap(([size, ids]) => ids.map(id => candidate.cells?.[size]?.find(c => c.id === id)).flatMap(cell => cell ?
+      [<polygon key={`${size}-${cell.id}`} points={points(cell.ring)} class="pdf-thumb-mapped" style={{ stroke: sizeColor(result.sizes.indexOf(size)) }} vector-effect="non-scaling-stroke" />] : []))}
     {edges.map((e, j) => j !== draft.foldEdge && <line key={j} x1={e.a[0]} y1={e.a[1]} x2={e.b[0]} y2={e.b[1]} class="pdf-thumb-edge" vector-effect="non-scaling-stroke" />)}
     {Object.entries(folds).map(([size, f]) => f && <line key={size} x1={f[0][0]} y1={f[0][1]} x2={f[1][0]} y2={f[1][1]} class="pdf-thumb-fold" vector-effect="non-scaling-stroke" />)}
     {half > 0 && <polyline points={points(arrow)} class="pdf-thumb-grain" vector-effect="non-scaling-stroke" />}
@@ -65,11 +95,42 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
   const setCuts = (cut: PieceDraft['cut']) => onChange({ cut, hint: undefined });
   const setCut = (index: number, patch: Partial<PieceDraft['cut'][number]>) => setCuts(draft.cut.map((c, i) => i === index ? { ...c, ...patch } : c));
   const turn = (by: number) => onChange({ grainAngle: (((Number.isFinite(draft.grainAngle) ? draft.grainAngle : 90) + by) % 360 + 360) % 360 });
-  const problems = draft.include ? draftProblems(draft) : [];
+  const problems = draft.include ? draftProblems(draft, candidate) : [];
+  const [active, setActive] = useState(0), [advanced] = useState(!!(draft.variantGroup || draft.variant));
+  const refCells = candidate.cells?.[candidate.refSize], split = draft.variants.length > 0;
+  const owners = useMemo(() => refCells ? cellOwners(refCells, CELL_TAP_MIN_CM2 / (k * k)) : new Map<number, number>(), [refCells, k]);
+  const tappable = refCells?.filter(c => owners.get(c.id) === c.id) ?? [];
+  const activeIndex = Math.min(active, draft.variants.length - 1);
+  // The selection is made on the reference size and mapped to the other sizes.
+  const selection = (ids: number[]): VariantDraft['cells'] => ({ [candidate.refSize]: ids, ...Object.fromEntries(Object.keys(candidate.sizes)
+    .filter(size => size !== candidate.refSize && candidate.cells?.[size]).map(size => [size, mapCells(refCells!, candidate.cells![size], ids)])) });
+  const setVariants = (variants: VariantDraft[]) => onChange({ variants });
+  const patchVariant = (i: number, patch: Partial<VariantDraft>) => setVariants(draft.variants.map((v, n) => n === i ? { ...v, ...patch } : v));
+  const toggle = (owner: number) => {
+    const current = draft.variants[activeIndex].cells[candidate.refSize] ?? [], group = refCells!.filter(c => owners.get(c.id) === owner).map(c => c.id);
+    patchVariant(activeIndex, { cells: selection(group.every(id => current.includes(id)) ? current.filter(id => !group.includes(id)) : [...new Set([...current, ...group])]) });
+  };
+  const picker: CellPicker | undefined = split && refCells ? { cells: refCells, owners, fill: variantFill(activeIndex), onToggle: toggle,
+    selected: new Set((draft.variants[activeIndex].cells[candidate.refSize] ?? []).map(id => owners.get(id) ?? id)),
+    mapped: Object.fromEntries(Object.entries(draft.variants[activeIndex].cells).filter(([size]) => size !== candidate.refSize)) } : undefined;
+  // A variant whose outline no longer lies on the fold edge is saved without the fold; say so before step 4.
+  const foldLost = useMemo(() => {
+    const edge = draft.foldEdge === null ? undefined : edges[draft.foldEdge], lost: string[] = [];
+    if (!edge) return lost;
+    for (const v of draft.variants) {
+      const sizes = Object.entries(v.cells).filter(([size, ids]) => ids.length && (!draft.allSizes || size === candidate.refSize)).flatMap(([size, ids]) => {
+        const cells = candidate.cells?.[size];
+        try { return cells && !snapFoldAt(unionCells(ids.flatMap(id => { const c = cells.find(x => x.id === id); return c ? [openRing(c.ring)] : []; }), k, result.resolutionMm ?? 0.5), edge, k) ? [size] : []; }
+        catch { return []; }
+      });
+      if (sizes.length) lost.push(`${v.label.trim() || 'bez názvu'} (${sizes.join(', ')})`);
+    }
+    return lost;
+  }, [candidate, draft.variants, draft.foldEdge, draft.allSizes, edges, k]);
   return <article class={`pdf-piece${draft.include ? '' : ' excluded'}`} aria-label={`Kandidát ${candidate.id}`}>
     <div class="pdf-piece-heading"><h4>Kandidát {candidate.id}</h4>
       <label class="check"><input type="checkbox" checked={draft.include} onChange={e => onChange({ include: e.currentTarget.checked })} />Použít</label></div>
-    <Thumbnail result={result} candidate={candidate} draft={draft} edges={edges} folds={folds} onPick={foldEdge => { if (draft.include) onChange({ foldEdge }); }} />
+    <Thumbnail result={result} candidate={candidate} draft={draft} edges={edges} folds={folds} picker={picker} onPick={foldEdge => { if (draft.include) onChange({ foldEdge }); }} />
     <fieldset class="pdf-piece-fields" disabled={!draft.include}>
       <label class="field"><span>Název</span><input type="text" value={draft.name} maxLength={120} onInput={e => onChange({ name: e.currentTarget.value })} /></label>
       <div class="pdf-cuts" role="group" aria-label={`Počty · kandidát ${candidate.id}`}><span class="pdf-label">Počty</span>
@@ -105,8 +166,28 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
         <span>Stejný pro všechny velikosti<small>{Object.keys(candidate.sizes).length === result.sizes.length ? 'Díl je nakreslený ve všech velikostech.' : 'Použije se obrys referenční velikosti.'}</small></span></label>
       <label class="check"><input type="checkbox" checked={draft.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
         <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
-      <div class="field-row"><label class="field"><span>Skupina variant</span><input type="text" value={draft.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
-        <label class="field"><span>Varianta</span><input type="text" value={draft.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label></div>
+      {!split && tappable.length > 1 && <div class="pdf-split-offer"><p class="small">Tento díl má více částí.</p>
+        <button type="button" class="secondary" onClick={() => { setActive(0); setVariants([{ label: '', cells: selection(refCells!.map(c => c.id)) }]); }}>Rozdělit na možnosti</button></div>}
+      {split && <div class="pdf-variants" role="group" aria-label={`Možnosti · kandidát ${candidate.id}`}><span class="pdf-label">Možnosti</span>
+        <p class="small muted">Vyberte možnost a klepněte na části v náhledu, které k ní patří (vyplněné). Ostatní části jsou šrafované. Slabé obrysy jsou výsledek v dalších velikostech.</p>
+        {draft.variants.map((v, i) => <div class="pdf-variant-row" key={i}>
+          <button type="button" class="pdf-variant-pick" aria-pressed={i === activeIndex} aria-label={`Upravit části možnosti ${v.label.trim() || i + 1}`} onClick={() => setActive(i)}>
+            <span class="pdf-variant-dot" style={{ background: variantFill(i) }} aria-hidden="true" /></button>
+          <input type="text" aria-label={`Název možnosti ${i + 1}`} value={v.label} placeholder="např. krátký rukáv" maxLength={80}
+            onFocus={() => setActive(i)} onInput={e => patchVariant(i, { label: e.currentTarget.value })} />
+          <button type="button" class="icon-button" aria-label={`Odebrat možnost ${v.label.trim() || i + 1}`} disabled={draft.variants.length === 1}
+            onClick={() => { setVariants(draft.variants.filter((_, n) => n !== i)); setActive(0); }}>×</button>
+        </div>)}
+        <div class="pdf-variant-actions">
+          <button type="button" class="text-button" onClick={() => { setVariants([...draft.variants, { label: '', cells: {} }]); setActive(draft.variants.length); }}>+ Přidat možnost</button>
+          <button type="button" class="text-button" onClick={() => setVariants([])}>Zrušit rozdělení</button></div>
+        {foldLost.length > 0 && <p class="warning small">Lom se nenašel u možnosti: {foldLost.join('; ')}. Tam se díl uloží bez lomu.</p>}
+      </div>}
+      <details class="pdf-advanced" open={advanced}><summary>Upřesnit</summary>
+        <div class="field-row"><label class="field"><span>Možnosti dílu</span><input type="text" value={draft.variantGroup} placeholder={split ? draft.name || 'např. Kapsa' : 'např. Kapsa'} maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
+          {!split && <label class="field"><span>Varianta</span><input type="text" value={draft.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label>}</div>
+        <p class="small muted">{split ? 'Název skupiny, pod kterou se možnosti objeví v zakázce; prázdný = název dílu.' : 'Spojí samostatné kandidáty do jedné skupiny možností: stejný název skupiny a u každého jiná varianta.'}</p>
+      </details>
       {problems.map(p => <p class="warning small" key={p}>{p}</p>)}
     </fieldset>
   </article>;
@@ -152,7 +233,7 @@ function RectangleCard({ index, rectangle, onChange, onRemove }: {
             onInput={e => setSize(size, { height: e.currentTarget.valueAsNumber })} /></td></tr>)}</tbody></table></div>}
       <label class="check"><input type="checkbox" checked={rectangle.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
         <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
-      <div class="field-row"><label class="field"><span>Skupina variant</span><input type="text" value={rectangle.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
+      <div class="field-row"><label class="field"><span>Možnosti dílu</span><input type="text" value={rectangle.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
         <label class="field"><span>Varianta</span><input type="text" value={rectangle.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label></div>
       {problems.map(p => <p class="warning small" key={p}>{p}</p>)}
     </div>

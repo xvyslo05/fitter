@@ -495,7 +495,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
     return { paths: assemblePaths(doc, placements), texts: assembleTexts(doc, placements), content: assemblePaths(contentPages(doc), placements), unverified: seams.filter(m => !m.matched).length };
   }, [doc, edited.layout]);
   const suggestedSeam = useMemo(() => sheet ? suggestSeamAllowance(sheet.texts) : 'unknown', [sheet]);
-  const piecesReady = !!pieces && (pieces.drafts.some(d => d.include) || pieces.rectangles.length > 0) && pieces.drafts.every(d => !d.include || !draftProblems(d).length)
+  const piecesReady = !!pieces && (pieces.drafts.some(d => d.include) || pieces.rectangles.length > 0) && pieces.drafts.every(d => !d.include || !draftProblems(d, traced?.candidates.find(c => c.id === d.candidateId)).length)
     && pieces.rectangles.every(r => !rectangleProblems(r).length);
   const built = useMemo(() => {
     if (stage !== 4 || !traced || !pieces || !meta) return null;

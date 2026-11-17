@@ -1368,6 +1368,24 @@ main {
 .pdf-thumb-edge { stroke:var(--edge-hint); stroke-width:1; stroke-dasharray:4 3; }
 .pdf-thumb-fold { stroke:var(--mark); stroke-width:3.5; stroke-linecap:round; }
 .pdf-thumb-grain { fill:none; stroke:var(--grain); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.pdf-thumb-edge,.pdf-thumb-fold,.pdf-thumb-grain { pointer-events:none; }
+.pdf-thumb-mapped { fill:none; stroke-width:1; opacity:.55; pointer-events:none; }
+.pdf-hatch-bg { fill:var(--surface-alt); }
+.pdf-hatch-line { stroke:var(--control-border); stroke-width:1; opacity:.55; }
+.pdf-cell polygon { stroke:var(--brand-text); stroke-width:1; cursor:pointer; }
+.pdf-cell[role="button"]:focus { outline:none; }
+.pdf-cell[role="button"]:focus-visible polygon { stroke:var(--focus); stroke-width:3.5; }
+.pdf-split-offer { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:8px 10px; background:var(--info-bg); border:1px solid var(--info-border); border-radius:8px; }
+.pdf-split-offer p { margin:0; }
+.pdf-variants { display:grid; gap:6px; }
+.pdf-variant-row { display:flex; align-items:center; gap:8px; }
+.pdf-variant-row input { flex:1; min-width:0; }
+.pdf-variant-pick { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; padding:0; flex:none; background:var(--surface); border:1px solid var(--control-border); border-radius:8px; }
+.pdf-variant-pick[aria-pressed="true"] { border-color:var(--brand-text); box-shadow:0 0 0 2px var(--brand-text); }
+.pdf-variant-dot { width:16px; height:16px; border-radius:50%; border:1px solid var(--brand-text); }
+.pdf-variant-actions { display:flex; gap:14px; flex-wrap:wrap; }
+.pdf-advanced summary { cursor:pointer; font-size:13px; }
+.pdf-advanced .field-row { margin-top:8px; }
 .pdf-piece-fields { border:0; padding:0; margin:12px 0 0; display:grid; gap:10px; min-width:0; }
 .pdf-piece-fields .check { margin:2px 0; }
 .pdf-piece-fields .field-row { margin:0; }
