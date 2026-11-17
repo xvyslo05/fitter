@@ -1,8 +1,12 @@
 import type { PatternFile, SeamAllowance } from '../model/pattern';
+import type { PieceProblem, Skip } from '../pdf/build';
 
 export interface SaveMeta { name: string; id: string; author: string; seamAllowance: SeamAllowance; sizes: string[] }
 const SEAM: Record<SeamAllowance, string> = { included: 'díly obsahují švové záložky', none: 'bez švových záložek', unknown: 'nejasné', mixed: 'nejasné' };
 const cm = (n: number) => n.toLocaleString('cs', { maximumFractionDigits: 1 });
+
+export interface Skipped { skip: Skip; label: string }
+const WHAT = { outline: 'obrys se nepodařilo obkreslit čistě.', fold: 'lom neleží na rovné hraně obrysu.', other: 'díl se nepodařilo sestavit.' };
 
 export function downloadPattern(pattern: PatternFile) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(pattern, null, 1)], { type: 'application/json' })), anchor = document.createElement('a');
@@ -10,8 +14,9 @@ export function downloadPattern(pattern: PatternFile) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function Save({ meta, onChange, patterns, suggestedSeam, pattern, error }: {
+export function Save({ meta, onChange, patterns, suggestedSeam, pattern, error, problems, candidates, skipped, onSkip }: {
   meta: SaveMeta; onChange: (meta: SaveMeta) => void; patterns: PatternFile[]; suggestedSeam: SeamAllowance; pattern: PatternFile | null; error: string;
+  problems: PieceProblem[]; candidates: Map<string, number | undefined>; skipped: Skipped[]; onSkip: (skip: Skip, label: string) => void;
 }) {
   const update = (patch: Partial<SaveMeta>) => onChange({ ...meta, ...patch });
   const move = (index: number, by: number) => {
@@ -37,6 +42,17 @@ export function Save({ meta, onChange, patterns, suggestedSeam, pattern, error }
     </div>
     <section class="pdf-save-summary" aria-label="Souhrn střihu"><h3>Souhrn</h3>
       {error && <p class="warning" role="alert">{error}</p>}
+      {problems.length > 0 && <div class="warning" role="alert"><p>Některé díly se nepodařilo sestavit. Vynechejte je, nebo se vraťte a upravte díly.</p>
+        <ul class="pdf-problems">{problems.map(p => {
+          const piece = `Díl „${p.pieceName}“${candidates.get(p.pieceId) === undefined ? '' : ` (kandidát ${candidates.get(p.pieceId)})`}`, label = `${piece}, velikost ${p.size}`;
+          return <li key={`${p.pieceId}|${p.size}`}><span>{label}: {WHAT[p.problem]}</span>
+            <span class="pdf-problem-actions">
+              {p.problem === 'fold' && <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId, size: p.size, fold: true }, `${label}: bez lomu`)}>Uložit bez lomu</button>}
+              <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId, size: p.size }, `${label}: vynechána`)}>Vynechat tuto velikost</button>
+              <button type="button" class="secondary" onClick={() => onSkip({ pieceId: p.pieceId }, `${piece}: vynechán celý`)}>Vynechat celý díl</button></span>
+            <details><summary>Technické podrobnosti</summary><p class="small">{p.message}</p></details></li>;
+        })}</ul></div>}
+      {skipped.length > 0 && <p class="small muted">Vynecháno při ukládání: {skipped.map(s => s.label).join(' · ')}. Tlačítkem Zpět se vynechání vrátí.</p>}
       {pattern && <><p class="small muted">Dílů: {pattern.pieces.length} · velikostí: {pattern.sizes.length}. Rozměry jsou šířka × délka v cm, délka ve směru vlákna.</p>
         <div class="pdf-table-scroll"><table class="pdf-candidates pdf-summary-table"><thead><tr><th>Díl</th><th>Počty</th>{pattern.sizes.map(s => <th key={s}>{s}</th>)}</tr></thead>
           <tbody>{pattern.pieces.map(p => <tr key={p.id}><th>{p.name}<span class="small muted">{[p.optional && 'volitelný', p.variantGroup && `${p.variantGroup}${p.variant ? ` · ${p.variant}` : ''}`].filter(Boolean).join(' · ')}</span></th>

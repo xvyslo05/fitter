@@ -4,26 +4,30 @@ import { assemblePaths, assembleTexts, placePages, unusedPages } from '../pdf/pl
 import { contentPages } from '../pdf/match';
 import { styleKeyOf, styleLegend } from '../pdf/styles';
 import { sizeRole, withoutLettering } from '../pdf/trace';
-import { detectScale, overrideScale, CM_PER_PT } from '../pdf/scale';
+import { detectScale, parseDecimal, resolveScale, CM_PER_PT } from '../pdf/scale';
+import type { ScaleAnswer } from '../pdf/scale';
 import { suggestPieces } from '../pdf/pieces';
-import type { PieceDraft } from '../pdf/pieces';
-import { buildPattern, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
+import { rectangleProblems } from '../pdf/pieces';
+import type { PieceDraft, RectangleDraft } from '../pdf/pieces';
+import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../pdf/build';
 import { area, bbox } from '../geom/polygon';
 import { demo } from '../model/demo';
 import { parsePatternFile } from '../model/pattern';
 import type { PatternFile } from '../model/pattern';
-import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, StyleEntry, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
+import type { LayoutBlock, PageLayout, PdfDoc, PdfPath, PdfText, ScaleResult, StyleEntry, SuggestRequest, TraceResult, TraceRequest, TraceResponse } from '../pdf/types';
 import { inlineTokens, sizeColor, useTheme } from '../theme';
 import { draftProblems, Pieces } from './PdfPieces';
 import { downloadPattern, Save } from './PdfSave';
+import type { Skipped } from './PdfSave';
 import type { SaveMeta } from './PdfSave';
 
 interface BlockDraft { first: string; last: string; rows: string }
 // The assembled sheet: all paths, texts, and paths without page furniture.
-interface Sheet { paths: PdfPath[]; texts: PdfText[]; content: PdfPath[] }
+interface Sheet { paths: PdfPath[]; texts: PdfText[]; content: PdfPath[]; unverified: number }
 const STEPS = ['Stránky', 'Velikosti', 'Díly', 'Uložit'];
 const draft = (b: LayoutBlock): BlockDraft => ({ first: String(b.pages[0]), last: String(b.pages[1]), rows: b.rows.join(',') });
 const number = (value: string) => Number(value.replace(',', '.'));
+const pagesWord = (n: number) => n === 1 ? 'stránku' : n < 5 ? 'stránky' : 'stránek';
 
 // Kept separate so the canvas outline and modal teardown can be checked without a DOM.
 export function tracePreviewPath(ctx: Pick<CanvasRenderingContext2D, 'moveTo' | 'lineTo' | 'closePath'>, path: PdfPath) {
@@ -262,7 +266,7 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null, com
     <div class="pdf-preview-heading"><h3>Složený arch</h3></div>
     <p id={hintId} class="small muted">Přibližujte gestem, Ctrl + kolečkem, dvojklikem nebo tlačítky. Přiblížený arch posunete tažením nebo kolečkem.</p>
     {sizesMode ? <p class="pdf-size-colors">{result?.sizes.map((size, i) => <span key={size} style={{ color: sizeColor(i) }}>● {size}</span>)}</p>
-      : <p class="small muted"><span class="pdf-seam verified" /> Shodný obsah <span class="pdf-seam" /> Neověřený spoj · {sheet.placements.length} stránek</p>}
+      : <p class="small muted"><span class="pdf-seam verified" /> navazuje <span class="pdf-seam" /> nejisté – zkontrolujte · {sheet.placements.length} stránek</p>}
     <div ref={box} class={`pdf-viewport${atFit ? '' : ' zoomed'}${dragging ? ' dragging' : ''}`} style={{ aspectRatio: `${sheet.width} / ${sheet.height}` }} tabIndex={0} role="group" aria-label="Náhled archu" aria-describedby={hintId} onKeyDown={key}>
       <canvas ref={canvas} role="img" aria-label={sizesMode ? `Náhled obrysů: ${result?.candidates.length ?? 0} kandidátů` : `Složený arch: ${sheet.placements.length} stránek, ${sheet.seams.filter(s => s.matched).length} ověřených spojů`}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDblClick={e => zoomAt(2, local(e))} />
@@ -272,6 +276,55 @@ function Preview({ doc, layout, sizesMode = false, result, highlight = null, com
         <button type="button" class="secondary" disabled={atFit} onClick={refit}>Celý arch</button>
       </div>
     </div>
+  </div>;
+}
+
+// The detected check square drawn on its page, so the user sees which square is meant.
+function SquarePicture({ doc, scale }: { doc: PdfDoc; scale: ScaleResult }) {
+  const canvas = useRef<HTMLCanvasElement>(null), theme = useTheme();
+  useEffect(() => {
+    const node = canvas.current, ctx = node?.getContext('2d'), page = doc.pages.find(p => p.index === scale.page);
+    if (!node || !ctx || !page || !scale.squarePt) return;
+    const [x, y, w, h] = scale.squarePt, side = Math.max(w, h) * 2, size = 220, k = size / side, dpr = window.devicePixelRatio || 1;
+    node.width = node.height = Math.round(size * dpr);
+    const style = getComputedStyle(node), token = (name: string) => style.getPropertyValue(name).trim();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = token('--sheet'); ctx.fillRect(0, 0, node.width, node.height);
+    ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * k * (side / 2 - x - w / 2), dpr * k * (side / 2 - y - h / 2));
+    ctx.lineJoin = ctx.lineCap = 'round'; ctx.strokeStyle = token('--sheet-line'); ctx.lineWidth = 1 / k;
+    const outline = new Path2D();
+    for (const path of page.paths) if (path.stroke || path.fill) tracePreviewPath(outline, path);
+    ctx.stroke(outline);
+    ctx.font = `${12 / k}px system-ui`; ctx.fillStyle = token('--brand-text');
+    for (const t of page.texts) ctx.fillText(t.str, t.x, t.y);
+    ctx.strokeStyle = token('--focus'); ctx.lineWidth = 3 / k; ctx.strokeRect(x, y, w, h);
+  }, [doc, scale, theme]);
+  return <canvas ref={canvas} class="pdf-square-picture" role="img" aria-label={`Nalezený kontrolní čtverec na stránce ${scale.page}`} />;
+}
+const cmText = (cm: number) => String(Math.round(cm * 100) / 100).replace('.', ',');
+
+// Asks whether the print matches the detected scale instead of showing numbers.
+function ScaleQuestion({ doc, detected, result, no, onNo, measured, onMeasured, pieceOk, onPieceOk, percent, onPercent }: {
+  doc: PdfDoc; detected: ScaleResult; result: TraceResult | null; no: boolean; onNo: (value: boolean) => void; measured: string; onMeasured: (value: string) => void;
+  pieceOk: boolean | null; onPieceOk: (value: boolean | null) => void; percent: string; onPercent: (value: string) => void;
+}) {
+  const name = useId();
+  const buttons = (value: boolean | null, set: (value: boolean) => void, yes: string, nope: string) => <div class="pdf-answer" role="group" aria-labelledby={name}>
+    <button type="button" class={value === true ? 'primary' : 'secondary'} aria-pressed={value === true} onClick={() => set(true)}>{yes}</button>
+    <button type="button" class={value === false ? 'primary' : 'secondary'} aria-pressed={value === false} onClick={() => set(false)}>{nope}</button></div>;
+  if (detected.source === 'square' && detected.squareCm) return <div class="pdf-scale-question">
+    {detected.squarePt && <SquarePicture doc={doc} scale={detected} />}
+    <p id={name}><strong>Má tento čtverec na vašem výtisku {cmText(detected.squareCm)} cm?</strong></p>
+    {buttons(!no, v => onNo(!v), 'Ano', 'Ne / nevím')}
+    {no && <label class="field"><span>Kolik cm jste naměřila?</span><input type="text" inputMode="decimal" value={measured} placeholder={cmText(detected.squareCm)} onInput={e => onMeasured(e.currentTarget.value)} />
+      <span class="small muted">Změřte stranu čtverce pravítkem na vytištěné stránce.</span></label>}
+  </div>;
+  // No square: 100 % is assumed; the largest traced piece offers a ruler check.
+  const largest = result?.candidates.map(c => ({ c, ring: c.sizes[c.refSize] })).filter(x => x.ring).sort((a, b) => area(b.ring) - area(a.ring))[0];
+  const dims = largest && (() => { const b = bbox(largest.ring); return `${cmText(b.width * detected.cmPerPt)} × ${cmText(b.height * detected.cmPerPt)}`; })();
+  return <div class="pdf-scale-question">
+    <p class="small">Kontrolní čtverec jsme nenašli. Počítáme s tiskem ve skutečné velikosti (100 %).</p>
+    {largest && dims && <><p id={name}><strong>Pro kontrolu: díl „{largest.c.labels[0] ?? `Díl ${largest.c.id}`}“ by měl měřit asi {dims} cm. Souhlasí to?</strong></p>{buttons(pieceOk, onPieceOk, 'Ano', 'Ne')}</>}
+    {pieceOk === false && <label class="field"><span>Střih je zvětšený / zmenšený na (%)</span><input type="text" inputMode="decimal" value={percent} placeholder="100" onInput={e => onPercent(e.currentTarget.value)} /></label>}
   </div>;
 }
 
@@ -285,7 +338,9 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   const detected = useMemo(() => detectScale(doc), [doc]);
   const [assignments, setAssignments] = useState<Record<string, string>>({}), [suggesting, setSuggesting] = useState(false);
   const companions = highlight && sizeRole(assignments[highlight]) === 'named' ? legend.filter(e => sizeRole(assignments[e.key]) === 'shared').map(e => e.key) : [];
-  const [squareCm, setSquareCm] = useState(''), [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
+  // The scale answer lives here (Sizes stays mounted), so going back and forth does not ask again.
+  const [scaleNo, setScaleNo] = useState(false), [measured, setMeasured] = useState(''), [percent, setPercent] = useState(''), [pieceOk, setPieceOk] = useState<boolean | null>(null);
+  const [gap, setGap] = useState('1'), [resolution, setResolution] = useState('0.5'), [minArea, setMinArea] = useState('15');
   const [excludeScaleMarks, setExcludeScaleMarks] = useState(true);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   // Suggest "uni" for the style that encloses clearly the most area (coarse trace in the worker).
@@ -310,13 +365,17 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
   }, [sheet, detected]);
   const settings = useMemo(() => {
     try {
-      const scale = squareCm.trim() ? overrideScale(detected, number(squareCm)) : detected;
+      const answer: ScaleAnswer = detected.source === 'square' ? (scaleNo && measured.trim() ? { ok: false, measuredCm: parseDecimal(measured) } : { ok: true })
+        : pieceOk === false && percent.trim() ? { percent: parseDecimal(percent) } : { ok: true };
+      const resolved = resolveScale(detected, answer);
+      if ('error' in resolved) throw new Error(resolved.error);
+      const scale = resolved.scale;
       const options = { cmPerPt: scale.cmPerPt, gapMm: number(gap), resolutionMm: number(resolution), minAreaCm2: number(minArea) };
       if (!gap.trim() || !resolution.trim() || !minArea.trim() || !Object.values(options).every(Number.isFinite) || options.gapMm < 0 || options.gapMm > 6 ||
         options.resolutionMm < 0.25 || options.resolutionMm > 1 || options.minAreaCm2 < 0) throw new Error('Mezery: 0–6 mm; rastr: 0,25–1 mm; plocha: alespoň 0 cm².');
       return { options, message: '' };
     } catch (e) { return { options: null, message: e instanceof Error ? e.message : 'Zkontrolujte nastavení.' }; }
-  }, [detected, squareCm, gap, resolution, minArea]);
+  }, [detected, scaleNo, measured, pieceOk, percent, gap, resolution, minArea]);
   const selected = Object.values(assignments).some(s => s.trim());
   useEffect(() => {
     if (!active) return;
@@ -352,16 +411,18 @@ function Sizes({ doc, layout, sheet, active, result, onResult }: {
         <td>{entry.paths}<span class="small muted">{(entry.lengthPt * cmPerPt).toFixed(1)} cm</span></td>
         <td><input aria-label={`Velikost pro styl ${i + 1}`} value={assignments[entry.key] ?? ''} placeholder="—" maxLength={80} onFocus={() => setFocused(entry.key)} onBlur={() => setFocused(k => k === entry.key ? null : k)} onInput={e => { const value = e.currentTarget.value; setAssignments(prev => ({ ...prev, [entry.key]: value })); }} /></td></tr>)}</tbody></table></div>
     <h3>Měřítko</h3>
-    <p class="small">{detected.source === 'square' ? `Kontrolní čtverec na stránce ${detected.page}: ${detected.measuredPt!.toFixed(2)} pt → ${detected.squareCm} cm (střed čáry).`
-      : 'Kontrolní čtverec nenalezen. Používám 100 % (2,54 / 72 cm na pt).'}</p>
-    <p class="small muted">Aktuálně {cmPerPt.toFixed(6)} cm/pt · {(cmPerPt / CM_PER_PT * 100).toFixed(2)} %</p>
-    {detected.measuredPt && <label class="field"><span>Skutečná strana čtverce (cm)</span><input aria-label="Skutečná strana čtverce (cm)" type="text" inputMode="decimal" value={squareCm} placeholder={String(detected.squareCm)} onInput={e => setSquareCm(e.currentTarget.value)} /></label>}
+    <ScaleQuestion doc={doc} detected={detected} result={result} no={scaleNo} onNo={setScaleNo} measured={measured} onMeasured={setMeasured}
+      pieceOk={pieceOk} onPieceOk={setPieceOk} percent={percent} onPercent={setPercent} />
+    <details class="pdf-advanced"><summary>Pokročilé</summary>
+      <p class="small muted">Aktuálně {cmPerPt.toFixed(6)} cm/pt · {(cmPerPt / CM_PER_PT * 100).toFixed(2)} %</p>
+      <label class="pdf-scale-marks"><input type="checkbox" checked={excludeScaleMarks} onChange={e => setExcludeScaleMarks(e.currentTarget.checked)} /> Vynechat kontrolní čtverce</label>
+      <p class="small muted">Volba vynechá nalezený čtverec a jeho kopie. Vypněte ji, pokud chybí stejně velký čtvercový díl. Čárkované střihové čáry se obkreslují souvisle.</p>
+    </details>
     <h3>Obkreslení</h3><div class="pdf-trace-settings">
       <label class="field"><span>Zacelit mezery (mm)</span><input type="number" min="0" max="6" step="0.25" value={gap} onInput={e => setGap(e.currentTarget.value)} /></label>
       <label class="field"><span>Krok rastru (mm)</span><input type="number" min="0.25" max="1" step="0.25" value={resolution} onInput={e => setResolution(e.currentTarget.value)} /></label>
       <label class="field"><span>Min. plocha (cm²)</span><input type="number" min="0" step="1" value={minArea} onInput={e => setMinArea(e.currentTarget.value)} /></label>
-    </div><label class="pdf-scale-marks"><input type="checkbox" checked={excludeScaleMarks} onChange={e => setExcludeScaleMarks(e.currentTarget.checked)} /> Vynechat kontrolní čtverce</label>
-    <p class="small muted">Volba vynechá nalezený čtverec a jeho kopie. Vypněte ji, pokud chybí stejně velký čtvercový díl. Čárkované střihové čáry se obkreslují souvisle.</p>
+    </div>
     {settings.message && <p class="warning" role="alert">{settings.message}</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     <p role="status" class="small">{busy ? 'Obkresluji velikosti…' : suggesting && !selected ? 'Hledám styl střihových čar…' : !selected ? 'Přiřaďte alespoň jeden styl velikosti.' : result ? `Nalezeno kandidátů: ${result.candidates.length}` : ''}</p>
@@ -380,11 +441,16 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
   const [doc, setDoc] = useState<PdfDoc | null>(null), [name, setName] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [stage, setStage] = useState(1), [traced, setTraced] = useState<TraceResult | null>(null);
+  // Step 1 shows a confirmation; the block and tile-step editors open on request or when detection is unsure.
+  const [manual, setManual] = useState(false), editors = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (manual) editors.current?.focus(); }, [manual]);
   useEffect(() => { dialog.current?.scrollTo({ top: 0 }); }, [stage]);
   const [detected, setDetected] = useState<ReturnType<typeof detectLayout> | null>(null);
   const [blocks, setBlocks] = useState<BlockDraft[]>([]), [step, setStep] = useState(['', '']);
   // Piece drafts belong to one trace result (key); `suggested` backs "Podle čáry".
-  const [pieces, setPieces] = useState<{ key: string; suggested: PieceDraft[]; drafts: PieceDraft[] } | null>(null);
+  const [pieces, setPieces] = useState<{ key: string; suggested: PieceDraft[]; drafts: PieceDraft[]; rectangles: RectangleDraft[] } | null>(null);
+  // Sizes, folds or pieces left out of the built pattern in step 4; the drafts stay untouched.
+  const [skips, setSkips] = useState<Skipped[]>([]);
   const [meta, setMeta] = useState<SaveMeta | null>(null);
   useEffect(() => {
     const focus = document.activeElement, node = dialog.current;
@@ -403,29 +469,36 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
     } catch (e) { return { layout: null, message: e instanceof Error ? e.message : 'Zkontrolujte bloky.' }; }
   }, [doc, blocks, step]);
   const unused = doc && edited.layout ? unusedPages(doc, edited.layout) : [];
+  const showEditors = manual || !detected?.confident || !edited.layout;
   const sheet = useMemo<Sheet | null>(() => {
     if (!doc || !edited.layout) return null;
-    const { placements } = placePages(doc, edited.layout);
-    return { paths: assemblePaths(doc, placements), texts: assembleTexts(doc, placements), content: assemblePaths(contentPages(doc), placements) };
+    const { placements, seams } = placePages(doc, edited.layout);
+    return { paths: assemblePaths(doc, placements), texts: assembleTexts(doc, placements), content: assemblePaths(contentPages(doc), placements), unverified: seams.filter(m => !m.matched).length };
   }, [doc, edited.layout]);
   const suggestedSeam = useMemo(() => sheet ? suggestSeamAllowance(sheet.texts) : 'unknown', [sheet]);
-  const piecesReady = !!pieces?.drafts.some(d => d.include) && pieces.drafts.every(d => !d.include || !draftProblems(d).length);
+  const piecesReady = !!pieces && (pieces.drafts.some(d => d.include) || pieces.rectangles.length > 0) && pieces.drafts.every(d => !d.include || !draftProblems(d).length)
+    && pieces.rectangles.every(r => !rectangleProblems(r).length);
   const built = useMemo(() => {
     if (stage !== 4 || !traced || !pieces || !meta) return null;
     try {
       if (meta.id.trim() === demo.id) throw new Error('ID střihu je vyhrazené pro vestavěné demo.');
-      const pattern = buildPattern(traced, pieces.drafts, { ...meta, id: meta.id.trim(), source: name });
+      const whole = buildPattern(traced, pieces.drafts, { ...meta, id: meta.id.trim(), source: name }, pieces.rectangles);
+      // Piece ids are built in draft order: remember which candidate each came from.
+      const candidates = new Map(whole.pieces.map((p, i) => [p.id, pieces.drafts.filter(d => d.include)[i]?.candidateId]));
+      const pattern = applySkips(whole, skips.map(s => s.skip)), problems = checkPieces(pattern);
+      if (problems.length) return { pattern: null, error: '', problems, candidates };
+      if (!pattern.pieces.length) return { pattern: null, error: 'Nezůstal žádný díl, který by šel uložit.', problems, candidates };
       parsePatternFile(pattern);
-      return { pattern, error: '' };
-    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : 'Střih nelze sestavit.' }; }
-  }, [stage, traced, pieces, meta, name]);
+      return { pattern, error: '', problems, candidates };
+    } catch (e) { return { pattern: null, error: e instanceof Error ? e.message : 'Střih nelze sestavit.', problems: [], candidates: new Map<string, number | undefined>() }; }
+  }, [stage, traced, pieces, meta, name, skips]);
   // A repeated trace of the same sheet gives the same result: keep the user's edits then.
   function toPieces() {
     if (!traced || !sheet) return;
     const key = JSON.stringify(traced);
     if (pieces?.key !== key) {
       const suggested = suggestPieces(traced, { contentPaths: sheet.content, texts: sheet.texts });
-      setPieces({ key, suggested, drafts: suggested }); setMeta(null);
+      setPieces({ key, suggested, drafts: suggested, rectangles: [] }); setMeta(null); setSkips([]);
     }
     setStage(3);
   }
@@ -445,7 +518,7 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
   async function open(file?: File) {
     if (!file) return;
     const id = ++request.current;
-    setBusy(true); setError(''); setDoc(null); setName(file.name); setDetected(null); setStage(1); setTraced(null); setPieces(null); setMeta(null);
+    setBusy(true); setError(''); setDoc(null); setName(file.name); setDetected(null); setManual(false); setStage(1); setTraced(null); setPieces(null); setMeta(null); setSkips([]);
     try {
       const { readPdf } = await import('../pdf/readPdf');
       const doc = await readPdf(new Uint8Array(await file.arrayBuffer()));
@@ -476,35 +549,47 @@ export function PdfImport({ patterns, onSaved, onClose }: { patterns: PatternFil
     {busy && <p role="status">Načítám {name} a hledám návaznost stránek…</p>}
     {error && <p class="warning" role="alert">{error}</p>}
     {stage === 1 && doc && detected && <>
-      <p class="pdf-summary"><strong>{name}</strong> · Počet stránek: {doc.pages.length}<br /><span class="small muted">Detekce: {detected.source}. Rozložení vždy zkontrolujte v náhledu.</span></p>
       {!doc.pages.some(p => p.paths.length) && <p class="warning">PDF neobsahuje vektorové cesty. Obrázkové skeny zatím nelze skládat podle obrysů.</p>}
-      <div class="pdf-workspace"><div class="pdf-editor"><h3>Bloky stránek</h3>
-        <p class="small muted">Každý blok má rozsah stránek a počty dlaždic v řádcích (např. 2,4,4). Řádky jsou zarovnané vlevo; bloky leží vedle sebe.</p>
-        {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>Blok {i + 1}</legend>
-          <div class="field-row"><label class="field"><span>Od stránky</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>
-            <label class="field"><span>Do stránky</span><input type="number" min="1" max={doc.pages.length} value={b.last} onInput={e => update(i, 'last', e.currentTarget.value)} /></label></div>
-          <label class="field"><span>Dlaždic v jednotlivých řádcích</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
-          <button type="button" class="text-button" onClick={() => setBlocks(prev => prev.filter((_, n) => n !== i))}>Odebrat blok {i + 1}</button>
-        </fieldset>)}
-        <div class="pdf-block-actions"><button type="button" class="secondary" onClick={() => setBlocks(prev => [...prev, { first: '', last: '', rows: '' }])}>+ Přidat blok</button>
-          <button type="button" class="text-button" onClick={() => setBlocks([{ first: '1', last: String(doc.pages.length), rows: '' }])}>Zadat vlastní bloky</button>
-          <button type="button" class="text-button" onClick={() => apply(detected.layout)}>Obnovit detekci</button></div>
-        {unused.length > 0 && <section><h3>Nepoužité stránky</h3>
-          <p class="small muted">Tyto stránky nejsou v aktuálních blocích. Můžete je přidat úpravou rozsahů nebo přidáním bloku.</p>
-          <ul class="pdf-unused" aria-label="Nepoužité stránky">{unused.map(page => <li key={page}>Stránka {page}</li>)}</ul>
-        </section>}
-        <h3>Krok dlaždic · překryv</h3><p class="small muted">Vzdálenost začátků sousedních stránek v bodech (pt). Menší krok znamená větší překryv. 1 mm = 2,835 pt.</p>
-        <div class="field-row">{['Vodorovně (pt)', 'Svisle (pt)'].map((label, i) => <label class="field" key={label}><span>{label}</span><input type="text" inputMode="decimal" value={step[i]} onInput={e => { const value = e.currentTarget.value; setStep(prev => prev.map((v, n) => n === i ? value : v)); }} /></label>)}</div>
-        <p class="small muted">Překryv první stránky: {(doc.pages[0].width - number(step[0])).toFixed(2)} × {(doc.pages[0].height - number(step[1])).toFixed(2)} pt.</p>
-        {edited.message && <p class="warning" role="alert">{edited.message}</p>}
-      </div>{edited.layout ? <Preview doc={doc} layout={edited.layout} /> : <p class="muted">Náhled se zobrazí po opravě bloků a kroku.</p>}</div>
+      {!showEditors && edited.layout && sheet ? <div class="pdf-confirm">
+        <p class="pdf-summary"><strong>{name}</strong><br />Složili jsme {doc.pages.length - unused.length} {pagesWord(doc.pages.length - unused.length)} do jednoho archu. Vypadá to správně?
+          {sheet.unverified > 0 && <> Nejistých spojů: {sheet.unverified}.</>}{unused.length > 0 && <> Nepoužité stránky: {unused.length}.</>}</p>
+        <Preview doc={doc} layout={edited.layout} />
+        <div class="pdf-answer"><button type="button" class="primary" onClick={() => setStage(2)}>Ano, pokračovat</button>
+          <button type="button" class="secondary" onClick={() => setManual(true)}>Ne, upravit ručně</button></div>
+      </div> : <>
+        <p class="pdf-summary"><strong>{name}</strong> · Počet stránek: {doc.pages.length}</p>
+        <div class="pdf-workspace"><div class="pdf-editor"><h3 ref={editors} tabIndex={-1}>Bloky stránek</h3>
+          {!manual && <p class="warning" role="status">{edited.layout ? 'Rozložení stránek se nepodařilo rozpoznat jistě. Zkontrolujte ho a podle potřeby upravte bloky.' : 'Rozložení stránek je třeba opravit.'}</p>}
+          <p class="small muted">Detekce: {detected.source}. Rozložení vždy zkontrolujte v náhledu.</p>
+          <p class="small muted">Každý blok má rozsah stránek a počty dlaždic v řádcích (např. 2,4,4). Řádky jsou zarovnané vlevo; bloky leží vedle sebe.</p>
+          {blocks.map((b, i) => <fieldset class="pdf-block" key={i}><legend>Blok {i + 1}</legend>
+            <div class="field-row"><label class="field"><span>Od stránky</span><input type="number" min="1" max={doc.pages.length} value={b.first} onInput={e => update(i, 'first', e.currentTarget.value)} /></label>
+              <label class="field"><span>Do stránky</span><input type="number" min="1" max={doc.pages.length} value={b.last} onInput={e => update(i, 'last', e.currentTarget.value)} /></label></div>
+            <label class="field"><span>Dlaždic v jednotlivých řádcích</span><input type="text" value={b.rows} placeholder="2,4,4" onInput={e => update(i, 'rows', e.currentTarget.value)} /></label>
+            <button type="button" class="text-button" onClick={() => setBlocks(prev => prev.filter((_, n) => n !== i))}>Odebrat blok {i + 1}</button>
+          </fieldset>)}
+          <div class="pdf-block-actions"><button type="button" class="secondary" onClick={() => setBlocks(prev => [...prev, { first: '', last: '', rows: '' }])}>+ Přidat blok</button>
+            <button type="button" class="text-button" onClick={() => setBlocks([{ first: '1', last: String(doc.pages.length), rows: '' }])}>Zadat vlastní bloky</button>
+            <button type="button" class="text-button" onClick={() => apply(detected.layout)}>Obnovit detekci</button></div>
+          {unused.length > 0 && <section><h3>Nepoužité stránky</h3>
+            <p class="small muted">Tyto stránky nejsou v aktuálních blocích. Můžete je přidat úpravou rozsahů nebo přidáním bloku.</p>
+            <ul class="pdf-unused" aria-label="Nepoužité stránky">{unused.map(page => <li key={page}>Stránka {page}</li>)}</ul>
+          </section>}
+          <h3>Krok dlaždic · překryv</h3><p class="small muted">Vzdálenost začátků sousedních stránek v bodech (pt). Menší krok znamená větší překryv. 1 mm = 2,835 pt.</p>
+          <div class="field-row">{['Vodorovně (pt)', 'Svisle (pt)'].map((label, i) => <label class="field" key={label}><span>{label}</span><input type="text" inputMode="decimal" value={step[i]} onInput={e => { const value = e.currentTarget.value; setStep(prev => prev.map((v, n) => n === i ? value : v)); }} /></label>)}</div>
+          <p class="small muted">Překryv první stránky: {(doc.pages[0].width - number(step[0])).toFixed(2)} × {(doc.pages[0].height - number(step[1])).toFixed(2)} pt.</p>
+          {edited.message && <p class="warning" role="alert">{edited.message}</p>}
+        </div>{edited.layout ? <Preview doc={doc} layout={edited.layout} /> : <p class="muted">Náhled se zobrazí po opravě bloků a kroku.</p>}</div>
+      </>}
     </>}
     {doc && edited.layout && sheet && <div hidden={stage !== 2}><Sizes doc={doc} layout={edited.layout} sheet={sheet} active={stage === 2} result={traced} onResult={setTraced} /></div>}
     {stage === 3 && traced && pieces && sheet && <Pieces result={traced} drafts={pieces.drafts} suggested={pieces.suggested} textLayer={sheet.texts.length > 0}
+      rectangles={pieces.rectangles} onRectangles={rectangles => setPieces(prev => prev && { ...prev, rectangles })}
       onChange={(index, patch) => setPieces(prev => prev && { ...prev, drafts: prev.drafts.map((d, i) => i === index ? { ...d, ...patch } : d) })} />}
-    {stage === 4 && meta && <Save meta={meta} onChange={setMeta} patterns={patterns} suggestedSeam={suggestedSeam} pattern={built?.pattern ?? null} error={built?.error ?? ''} />}
+    {stage === 4 && meta && <Save meta={meta} onChange={setMeta} patterns={patterns} suggestedSeam={suggestedSeam} pattern={built?.pattern ?? null} error={built?.error ?? ''}
+      problems={built?.problems ?? []} candidates={built?.candidates ?? new Map()} skipped={skips} onSkip={(skip, label) => setSkips(prev => [...prev, { skip, label }])} />}
     <div class="pdf-footer"><span class="small muted">Krok {stage} ze 4 · {STEPS[stage - 1]}</span>
-      <div class="pdf-navigation">{stage > 1 && <button type="button" class="secondary" onClick={() => setStage(stage - 1)}>Zpět</button>}
+      <div class="pdf-navigation">{stage > 1 && <button type="button" class="secondary" onClick={() => { if (stage === 4) setSkips([]); setStage(stage - 1); }}>Zpět</button>}
         {stage < 4 ? <button type="button" class="primary" disabled={!ready[stage]} onClick={next}>Další</button> : <>
           <button type="button" class="secondary" disabled={!built?.pattern} onClick={() => built?.pattern && downloadPattern(built.pattern)}>Stáhnout .json</button>
           <button type="button" class="primary" disabled={!built?.pattern} onClick={() => built?.pattern && onSaved(built.pattern)}>Uložit do knihovny</button></>}</div></div>

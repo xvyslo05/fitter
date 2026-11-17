@@ -11,12 +11,34 @@ export interface PieceDraft {
   grainAngle: number; optional: boolean; variantGroup: string; variant: string;
   // Shown on the card: the labels left the counts ambiguous.
   hint?: string;
+  // The reference outline is used for every size of the pattern.
+  allSizes?: boolean;
+}
+// A piece given by measurements: width across, height along the grain, in cm, per size.
+export interface RectangleDraft {
+  name: string; cut: { material: string; count: number }[];
+  sizes: Record<string, { width: number; height: number }>;
+  // The dimensions are edited per size; otherwise one pair is kept for all sizes.
+  perSize: boolean; optional: boolean; variantGroup: string; variant: string;
+}
+export const RECTANGLE_MAX_CM = 1000;
+export const newRectangle = (sizes: string[]): RectangleDraft => ({ name: '', cut: [{ material: DEFAULT_MATERIAL, count: 1 }],
+  sizes: Object.fromEntries(sizes.map(size => [size, { width: NaN, height: NaN }])), perSize: false, optional: false, variantGroup: '', variant: '' });
+export function rectangleProblems(rectangle: RectangleDraft): string[] {
+  const problems: string[] = [];
+  if (!rectangle.name.trim()) problems.push('Zadejte název dílu.');
+  if (!rectangle.cut.length) problems.push('Přidejte alespoň jeden materiál.');
+  if (rectangle.cut.some(c => !c.material.trim())) problems.push('Vyplňte název materiálu.');
+  if (rectangle.cut.some(c => !Number.isInteger(c.count) || c.count < 1 || c.count > 1000)) problems.push('Počet kusů musí být celé číslo 1–1 000.');
+  if (Object.values(rectangle.sizes).some(({ width, height }) => !(width > 0 && width <= RECTANGLE_MAX_CM && height > 0 && height <= RECTANGLE_MAX_CM)))
+    problems.push(`Šířka i délka musí být větší než 0 a nejvýše ${RECTANGLE_MAX_CM} cm.`);
+  return problems;
 }
 export interface Edge { a: Pt; b: Pt; length: number }
 // Furniture-free sheet paths (contentPages) and all sheet texts, in sheet pt.
 export interface PieceSheet { contentPaths: PdfPath[]; texts: PdfText[] }
 
-const FOLD_MIN_CM = 5, GRAIN_MIN_CM = 3, ARROW_MIN_CM = 1.5, NEAR_CM = 2, FOLD_SNAP_CM = 0.25;
+const SAME_OUTLINE_CM = 0.1, FOLD_MIN_CM = 5, GRAIN_MIN_CM = 3, ARROW_MIN_CM = 1.5, NEAR_CM = 2, FOLD_SNAP_CM = 0.25;
 export const DEFAULT_MATERIAL = 'hlavní';
 
 // JS \b is ASCII-only; letter lookarounds keep Czech/German words whole.
@@ -35,6 +57,8 @@ export const openRing = (ring: Pt[]): Pt[] => ring.length > 1 && ring[0][0] === 
 const distance = (a: Pt, b: Pt) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 const lineDistance = (p: Pt, a: Pt, b: Pt) => Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / (distance(a, b) || 1);
 const ringDistance = (p: Pt, ring: Pt[]) => ring.reduce((d, a, i) => Math.min(d, pointSegmentDistance(p, a, ring[(i + 1) % ring.length])), Infinity);
+// Every vertex of each ring within `tolerance` of the other ring.
+const sameOutline = (a: Pt[], b: Pt[], tolerance: number) => a.every(p => ringDistance(p, b) <= tolerance) && b.every(p => ringDistance(p, a) <= tolerance);
 const along = (a: Pt, b: Pt, t: number): Pt => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 // Axis angle in degrees, [0, 180): a grain line or fold edge has no direction.
 export const axisAngle = (a: Pt, b: Pt) => ((Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI) % 180 + 180) % 180;
@@ -264,8 +288,9 @@ export function suggestPieces(result: TraceResult, sheet: PieceSheet): PieceDraf
     }
     const line = detectGrain(c, k, sheet), fold = foldEdge === null ? null : edges[foldEdge];
     const grainAngle = line ? axisAngle(line.a, line.b) : fold ? axisAngle(fold.a, fold.b) : 90;
+    const same = Object.keys(c.sizes).length < result.sizes.length && Object.values(c.sizes).every(ring => sameOutline(openRing(ring), rings[i], SAME_OUTLINE_CM / k));
     const include = !(c.labels.length === 0 && area(rings[i]) * k * k < 25) && !tableLike(c.labels);
     return { candidateId: c.id, include, name: parsed.name ?? `Díl ${c.id}`, cut: parsed.cut, foldEdge, grainAngle,
-      optional: false, variantGroup: '', variant: '', ...(parsed.hint ? { hint: parsed.hint } : {}) };
+      optional: false, variantGroup: '', variant: '', ...(parsed.hint ? { hint: parsed.hint } : {}), ...(same ? { allSizes: true } : {}) };
   });
 }

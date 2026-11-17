@@ -1,7 +1,8 @@
 import { area, bbox, rotate, signedArea } from '../geom/polygon';
+import { parsePatternFile } from '../model/pattern';
 import type { PatternFile, Piece, PieceSize, SeamAllowance } from '../model/pattern';
 import { openRing, sizeFolds } from './pieces';
-import type { PieceDraft } from './pieces';
+import type { PieceDraft, RectangleDraft } from './pieces';
 import type { PdfText, Pt, TraceResult } from './types';
 
 export interface PatternMeta { id: string; name: string; author?: string; source?: string; seamAllowance: SeamAllowance; sizes: string[] }
@@ -20,7 +21,9 @@ function centroid(ring: Pt[]): Pt {
 // As tools/pattern-extract/extract.py cmd_build: every size is rotated about the reference outline's
 // centroid by 90° − grain so the grain runs along +y, scaled to cm and moved to a zero bbox minimum.
 // Rings keep the offline builder's winding (negative shoelace sum; clockwise if y pointed up).
-export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: PatternMeta): PatternFile {
+// A draft marked allSizes gives every size of the pattern the reference outline (and its fold).
+// Rectangles are built from their measurements: width across, length along the grain (+y).
+export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: PatternMeta, rectangles: RectangleDraft[] = []): PatternFile {
   const k = result.cmPerPt, ids = new Set<string>();
   const pieces = drafts.filter(d => d.include).map((draft): Piece => {
     const candidate = result.candidates.find(c => c.id === draft.candidateId);
@@ -28,12 +31,13 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
     const origin = centroid(openRing(candidate.sizes[candidate.refSize])), folds = sizeFolds(candidate, draft.foldEdge, k);
     const place = (points: Pt[]): Pt[] => rotate(points.map(([x, y]) => [x - origin[0], y - origin[1]]), 90 - draft.grainAngle).map(([x, y]) => [x * k, y * k]);
     const sizes: Record<string, PieceSize> = {};
-    for (const size of meta.sizes.filter(s => Object.hasOwn(candidate.sizes, s))) {
-      const placed = place(openRing(candidate.sizes[size])), b = bbox(placed);
+    for (const size of meta.sizes.filter(s => draft.allSizes || Object.hasOwn(candidate.sizes, s))) {
+      const from = draft.allSizes ? candidate.refSize : size;
+      const placed = place(openRing(candidate.sizes[from])), b = bbox(placed);
       const move = ([x, y]: Pt): Pt => [round(x - b.minX), round(y - b.minY)];
       const outline = placed.map(move).filter((p, i, all) => { const q = all[(i + 1) % all.length]; return p[0] !== q[0] || p[1] !== q[1]; });
       if (signedArea(outline) > 0) outline.reverse();
-      const fold = folds[size], bounds = bbox(outline);
+      const fold = folds[from], bounds = bbox(outline);
       sizes[size] = { outline, ...(fold ? { fold: place(fold).map(move) as [Pt, Pt] } : {}),
         bbox: [round(bounds.width, 1), round(bounds.height, 1)], area: round(area(outline), 1) };
     }
@@ -43,9 +47,59 @@ export function buildPattern(result: TraceResult, drafts: PieceDraft[], meta: Pa
       ...(draft.optional ? { optional: true } : {}), ...(draft.variantGroup.trim() ? { variantGroup: draft.variantGroup.trim() } : {}),
       ...(draft.variant.trim() ? { variant: draft.variant.trim() } : {}), sizes };
   });
+  rectangles.forEach((rectangle, i) => {
+    const sizes: Record<string, PieceSize> = {};
+    for (const size of meta.sizes.filter(s => Object.hasOwn(rectangle.sizes, s))) {
+      const { width: w, height: h } = rectangle.sizes[size];
+      sizes[size] = { outline: [[0, 0], [0, h], [w, h], [w, 0]], bbox: [w, h], area: round(w * h, 1) };
+    }
+    const id = uniqueId(slug(rectangle.name) || `obdelnik-${i + 1}`, ids);
+    ids.add(id);
+    pieces.push({ id, name: rectangle.name.trim(), cut: rectangle.cut.map(c => ({ material: c.material.trim(), count: c.count })),
+      ...(rectangle.optional ? { optional: true } : {}), ...(rectangle.variantGroup.trim() ? { variantGroup: rectangle.variantGroup.trim() } : {}),
+      ...(rectangle.variant.trim() ? { variant: rectangle.variant.trim() } : {}), sizes });
+  });
   return { format: 'fitter-pattern@1', id: meta.id, name: meta.name.trim(), ...(meta.author?.trim() ? { author: meta.author.trim() } : {}),
     ...(meta.source ? { source: meta.source } : {}), seamAllowance: meta.seamAllowance,
     sizes: meta.sizes.filter(s => pieces.some(p => Object.hasOwn(p.sizes, s))), pieces };
+}
+
+export interface PieceProblem { pieceId: string; pieceName: string; size: string; problem: 'outline' | 'fold' | 'other'; message: string }
+// What the user may drop from the built pattern: one size of a piece, its fold, or the whole piece.
+export interface Skip { pieceId: string; size?: string; fold?: boolean }
+
+// Validates every size of every piece on its own, so one bad outline names its piece and size.
+export function checkPieces(pattern: PatternFile): PieceProblem[] {
+  const problems: PieceProblem[] = [];
+  const attempt = (piece: Piece, size: string, shape: PieceSize) => {
+    try { parsePatternFile({ ...pattern, sizes: [size], pieces: [{ ...piece, sizes: { [size]: shape } }] }); return ''; }
+    catch (e) { return e instanceof Error ? e.message : String(e); }
+  };
+  for (const piece of pattern.pieces) for (const [size, shape] of Object.entries(piece.sizes)) {
+    const message = attempt(piece, size, shape);
+    if (!message) continue;
+    // A fold that fails alone is a fold problem; otherwise the outline is named when the validator does.
+    const withoutFold = { ...shape };
+    delete withoutFold.fold;
+    const problem = shape.fold && !attempt(piece, size, withoutFold) ? 'fold' : message.includes('obrys') ? 'outline' : 'other';
+    problems.push({ pieceId: piece.id, pieceName: piece.name, size, problem, message });
+  }
+  return problems;
+}
+
+// Drops sizes, folds or pieces from the built pattern only; a piece left without sizes goes too and
+// sizes no piece has leave the pattern.
+export function applySkips(pattern: PatternFile, skips: Skip[]): PatternFile {
+  const pieces = pattern.pieces.filter(p => !skips.some(s => s.pieceId === p.id && s.size === undefined && !s.fold)).map((piece): Piece => {
+    const sizes: Record<string, PieceSize> = {};
+    for (const [size, shape] of Object.entries(piece.sizes)) {
+      if (skips.some(s => s.pieceId === piece.id && s.size === size && !s.fold)) continue;
+      const { fold, ...rest } = shape;
+      sizes[size] = fold && !skips.some(s => s.pieceId === piece.id && s.size === size && s.fold) ? shape : rest;
+    }
+    return { ...piece, sizes };
+  }).filter(p => Object.keys(p.sizes).length);
+  return { ...pattern, sizes: pattern.sizes.filter(s => pieces.some(p => Object.hasOwn(p.sizes, s))), pieces };
 }
 
 // Phrases that remove "none" are cut out before looking for "included" ("bez přídavků na švy"

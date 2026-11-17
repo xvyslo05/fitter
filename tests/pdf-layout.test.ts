@@ -242,4 +242,13 @@ describe('PDF layout and placement', () => {
     expect(source).not.toContain('náhled skládání');
   });
 
+  it('reports whether the layout is confident or the blocks must be entered', async () => {
+    expect(detectLayout(await readPdf(repeatedSheet(true))).confident).toBe(true);
+    const cells = rects([[20, 20], [74, 20], [20, 110], [74, 110]]);
+    expect(detectLayout(await readPdf(pdfBytes([{ content: cells }, ...linkedTiles(4)]))).confident).toBe(true);
+    const unlinked = await readPdf(pdfBytes([{ content: cells }, ...Array.from({ length: 4 }, () => ({ content: '' }))]));
+    const { source, confident } = detectLayout(unlinked);
+    expect(source).toContain('bloky je třeba zadat');
+    expect(confident).toBe(false);
+  });
 });

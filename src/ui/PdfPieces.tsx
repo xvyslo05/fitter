@@ -1,7 +1,7 @@
 import { useMemo } from 'preact/hooks';
 import { bbox, pointSegmentDistance } from '../geom/polygon';
-import { foldEdges, sizeFolds } from '../pdf/pieces';
-import type { Edge, PieceDraft } from '../pdf/pieces';
+import { foldEdges, newRectangle, rectangleProblems, RECTANGLE_MAX_CM, sizeFolds } from '../pdf/pieces';
+import type { Edge, PieceDraft, RectangleDraft } from '../pdf/pieces';
 import type { PieceCandidate, Pt, TraceResult } from '../pdf/types';
 import { sizeColor } from '../theme';
 
@@ -100,6 +100,9 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
         </div>
         <p class="small muted">Úhel v náhledu: 0° vodorovně, 90° svisle. Při uložení se díl otočí, aby vlákno vedlo podél délky látky.</p>
       </div>
+      <label class="check"><input type="checkbox" checked={!!draft.allSizes} disabled={Object.keys(candidate.sizes).length === result.sizes.length}
+        onChange={e => onChange({ allSizes: e.currentTarget.checked })} />
+        <span>Stejný pro všechny velikosti<small>{Object.keys(candidate.sizes).length === result.sizes.length ? 'Díl je nakreslený ve všech velikostech.' : 'Použije se obrys referenční velikosti.'}</small></span></label>
       <label class="check"><input type="checkbox" checked={draft.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
         <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
       <div class="field-row"><label class="field"><span>Skupina variant</span><input type="text" value={draft.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
@@ -109,15 +112,66 @@ function PieceCard({ result, candidate, draft, auto, onChange }: {
   </article>;
 }
 
-export function Pieces({ result, drafts, suggested, textLayer, onChange }: {
-  result: TraceResult; drafts: PieceDraft[]; suggested: PieceDraft[]; textLayer: boolean; onChange: (index: number, patch: Partial<PieceDraft>) => void;
+// Dimensions typed in cm; a decimal comma is accepted by the number field.
+function RectangleCard({ index, rectangle, onChange, onRemove }: {
+  index: number; rectangle: RectangleDraft; onChange: (patch: Partial<RectangleDraft>) => void; onRemove: () => void;
 }) {
-  const included = drafts.filter(d => d.include).length;
+  const sizes = Object.keys(rectangle.sizes), first = rectangle.sizes[sizes[0]];
+  const setCuts = (cut: RectangleDraft['cut']) => onChange({ cut });
+  const setCut = (i: number, patch: Partial<RectangleDraft['cut'][number]>) => setCuts(rectangle.cut.map((c, n) => n === i ? { ...c, ...patch } : c));
+  const setSize = (size: string, patch: Partial<{ width: number; height: number }>) => onChange({ sizes: { ...rectangle.sizes, [size]: { ...rectangle.sizes[size], ...patch } } });
+  const setAll = (patch: Partial<{ width: number; height: number }>) => onChange({ sizes: Object.fromEntries(sizes.map(size => [size, { ...rectangle.sizes[size], ...patch }])) });
+  const length = (label: string, value: number, onInput: (n: number) => void) => <label class="field"><span>{label}</span>
+    <span class="input-unit"><input type="number" min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(value) ? value : ''}
+      onInput={e => onInput(e.currentTarget.valueAsNumber)} /><span aria-hidden="true">cm</span></span></label>;
+  const problems = rectangleProblems(rectangle);
+  return <article class="pdf-piece" aria-label={`Obdélníkový díl ${index + 1}`}>
+    <div class="pdf-piece-heading"><h4>Obdélník {index + 1}</h4>
+      <button type="button" class="text-button" onClick={onRemove}>Odebrat</button></div>
+    <div class="pdf-piece-fields">
+      <label class="field"><span>Název</span><input type="text" value={rectangle.name} maxLength={120} placeholder="např. Manžeta" onInput={e => onChange({ name: e.currentTarget.value })} /></label>
+      <div class="pdf-cuts" role="group" aria-label={`Počty · obdélník ${index + 1}`}><span class="pdf-label">Počty</span>
+        {rectangle.cut.map((c, i) => <div class="pdf-cut-row" key={i}>
+          <input type="text" aria-label={`Materiál ${i + 1}`} value={c.material} placeholder="např. podšívka" maxLength={80} onInput={e => setCut(i, { material: e.currentTarget.value })} />
+          <span class="input-unit"><input type="number" aria-label={`Počet kusů · materiál ${i + 1}`} min={1} max={1000} step={1}
+            value={Number.isFinite(c.count) ? c.count : ''} onInput={e => setCut(i, { count: e.currentTarget.valueAsNumber })} /><span aria-hidden="true">×</span></span>
+          <button type="button" class="icon-button" aria-label={`Odebrat materiál ${i + 1}`} disabled={rectangle.cut.length === 1}
+            onClick={() => setCuts(rectangle.cut.filter((_, n) => n !== i))}>×</button>
+        </div>)}
+        <button type="button" class="text-button" onClick={() => setCuts([...rectangle.cut, { material: '', count: 1 }])}>+ Přidat materiál</button>
+      </div>
+      {!rectangle.perSize && <div class="field-row">{length('Šířka', first?.width, n => setAll({ width: n }))}{length('Délka', first?.height, n => setAll({ height: n }))}</div>}
+      <p class="small muted">Délka je po směru vlákna.</p>
+      <label class="check"><input type="checkbox" checked={rectangle.perSize} onChange={e => onChange({ perSize: e.currentTarget.checked })} />
+        <span>Rozměry se liší podle velikosti</span></label>
+      {rectangle.perSize && <div class="pdf-table-scroll"><table class="pdf-candidates"><thead><tr><th>Velikost</th><th>Šířka (cm)</th><th>Délka (cm)</th></tr></thead>
+        <tbody>{sizes.map(size => <tr key={size}><th>{size}</th>
+          <td><input type="number" aria-label={`Šířka · velikost ${size}`} min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(rectangle.sizes[size].width) ? rectangle.sizes[size].width : ''}
+            onInput={e => setSize(size, { width: e.currentTarget.valueAsNumber })} /></td>
+          <td><input type="number" aria-label={`Délka · velikost ${size}`} min={0} max={RECTANGLE_MAX_CM} step="any" value={Number.isFinite(rectangle.sizes[size].height) ? rectangle.sizes[size].height : ''}
+            onInput={e => setSize(size, { height: e.currentTarget.valueAsNumber })} /></td></tr>)}</tbody></table></div>}
+      <label class="check"><input type="checkbox" checked={rectangle.optional} onChange={e => onChange({ optional: e.currentTarget.checked })} />
+        <span>Volitelný díl<small>V zakázce je standardně vypnutý.</small></span></label>
+      <div class="field-row"><label class="field"><span>Skupina variant</span><input type="text" value={rectangle.variantGroup} placeholder="např. Kapsa" maxLength={80} onInput={e => onChange({ variantGroup: e.currentTarget.value })} /></label>
+        <label class="field"><span>Varianta</span><input type="text" value={rectangle.variant} placeholder="např. Velká" maxLength={80} onInput={e => onChange({ variant: e.currentTarget.value })} /></label></div>
+      {problems.map(p => <p class="warning small" key={p}>{p}</p>)}
+    </div>
+  </article>;
+}
+
+export function Pieces({ result, drafts, suggested, rectangles, textLayer, onChange, onRectangles }: {
+  result: TraceResult; drafts: PieceDraft[]; suggested: PieceDraft[]; rectangles: RectangleDraft[]; textLayer: boolean;
+  onChange: (index: number, patch: Partial<PieceDraft>) => void; onRectangles: (rectangles: RectangleDraft[]) => void;
+}) {
+  const included = drafts.filter(d => d.include).length, total = included + rectangles.length;
   return <div class="pdf-pieces">
     {!textLayer && <p class="warning">PDF nemá textovou vrstvu (písmo je převedené na křivky) – názvy, počty a lom doplňte podle náhledu.</p>}
-    <p class="small muted">Návrhy vycházejí z popisků a čar v PDF. Zkontrolujte název, počty, lom a směr vlákna. Barevné obrysy jsou další velikosti, přerušované čáry rovné hrany vhodné pro lom, červeně je lom, modře směr vlákna. Použito dílů: {included} z {drafts.length}.</p>
-    {!included && <p class="warning" role="alert">Vyberte alespoň jeden díl.</p>}
+    <p class="small muted">Návrhy vycházejí z popisků a čar v PDF. Zkontrolujte název, počty, lom a směr vlákna. Barevné obrysy jsou další velikosti, přerušované čáry rovné hrany vhodné pro lom, červeně je lom, modře směr vlákna. Použito dílů: {total} z {drafts.length + rectangles.length}.</p>
+    {!total && <p class="warning" role="alert">Vyberte alespoň jeden díl.</p>}
     <div class="pdf-piece-grid">{drafts.map((draft, i) => <PieceCard key={draft.candidateId} result={result} draft={draft} auto={suggested[i]}
-      candidate={result.candidates.find(c => c.id === draft.candidateId)!} onChange={patch => onChange(i, patch)} />)}</div>
+      candidate={result.candidates.find(c => c.id === draft.candidateId)!} onChange={patch => onChange(i, patch)} />)}
+      {rectangles.map((rectangle, i) => <RectangleCard key={i} index={i} rectangle={rectangle}
+        onChange={patch => onRectangles(rectangles.map((r, n) => n === i ? { ...r, ...patch } : r))} onRemove={() => onRectangles(rectangles.filter((_, n) => n !== i))} />)}</div>
+    <p><button type="button" class="secondary" onClick={() => onRectangles([...rectangles, newRectangle(result.sizes)])}>+ Přidat obdélníkový díl (podle rozměrů)</button></p>
   </div>;
 }

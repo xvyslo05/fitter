@@ -39,7 +39,7 @@ function squareCandidates(doc: PdfDoc) {
     const snap = Math.abs(physical / standard - 1) <= 0.03;
     if (!score && !snap) return;
     const squareCm = namedCm ?? (snap ? standard : physical);
-    candidates.push({ result: { cmPerPt: squareCm / side, source: 'square', squareCm, measuredPt: side, page: page.index }, score: score + (snap ? 0.5 : 0), path, subpath: i, labelled: score >= 1 });
+    candidates.push({ result: { cmPerPt: squareCm / side, source: 'square', squareCm, measuredPt: side, page: page.index, squarePt: [b.minX, b.minY, b.width, b.height] }, score: score + (snap ? 0.5 : 0), path, subpath: i, labelled: score >= 1 });
   });
   return candidates;
 }
@@ -61,4 +61,21 @@ export function withoutScaleMarks(paths: PdfPath[], texts: PdfText[], scale?: Sc
 export function overrideScale(scale: ScaleResult, squareCm: number): ScaleResult {
   if (!scale.measuredPt || !Number.isFinite(squareCm) || squareCm <= 0) throw new Error('Zadejte kladnou velikost nalezeného čtverce v cm.');
   return { ...scale, squareCm, cmPerPt: squareCm / scale.measuredPt };
+}
+// "4,8" and "4.8" are 4.8; anything else is NaN.
+export function parseDecimal(text: string): number {
+  const value = text.trim().replace(',', '.');
+  return /^\d+(\.\d+)?$/.test(value) ? Number(value) : NaN;
+}
+// The user's answer to the scale question: the square matches, it measures another side, or (no square) the print is at another percentage.
+export type ScaleAnswer = { ok: true } | { ok: false; measuredCm: number } | { percent: number };
+export function resolveScale(detected: ScaleResult, answer: ScaleAnswer): { scale: ScaleResult } | { error: string } {
+  if ('percent' in answer) {
+    if (!Number.isFinite(answer.percent) || answer.percent <= 0) return { error: 'Zadejte kladné procento, např. 97.' };
+    return { scale: { ...detected, cmPerPt: CM_PER_PT * answer.percent / 100 } };
+  }
+  if (answer.ok) return { scale: detected };
+  if (!detected.measuredPt) return { error: 'Kontrolní čtverec nebyl nalezen.' };
+  if (!Number.isFinite(answer.measuredCm) || answer.measuredCm <= 0) return { error: 'Zadejte kladnou velikost čtverce v cm, např. 4,8.' };
+  return { scale: overrideScale(detected, answer.measuredCm) };
 }

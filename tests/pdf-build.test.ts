@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { bbox, signedArea } from '../src/geom/polygon';
 import { parsePatternFile } from '../src/model/pattern';
-import { buildPattern, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../src/pdf/build';
-import { foldEdges } from '../src/pdf/pieces';
-import type { PieceDraft } from '../src/pdf/pieces';
+import { applySkips, buildPattern, checkPieces, patternName, slug, sortSizes, suggestSeamAllowance, uniqueId } from '../src/pdf/build';
+import { foldEdges, newRectangle, rectangleProblems } from '../src/pdf/pieces';
+import type { PieceDraft, RectangleDraft } from '../src/pdf/pieces';
 import { CM_PER_PT } from '../src/pdf/scale';
 import type { PdfText, Pt, TraceResult } from '../src/pdf/types';
 
@@ -71,6 +71,80 @@ describe('buildPattern', () => {
     expect(pattern).toMatchObject({ format: 'fitter-pattern@1', id: 'test', name: 'Testovací střih', source: 'strih.pdf', seamAllowance: 'none', sizes: ['M', 'L'] });
     expect(pattern).not.toHaveProperty('author');
     expect(parsePatternFile(JSON.parse(JSON.stringify(pattern)))).toEqual(pattern);
+  });
+});
+
+describe('checkPieces', () => {
+  // Size M of candidate 1 is a bow tie: its two diagonals cross.
+  const bow: Pt[] = [[0, 0], [pt(10), pt(10)], [pt(10), 0], [0, pt(10)], [0, 0]];
+  const broken: TraceResult = { ...result, candidates: [{ ...result.candidates[0], sizes: { ...result.candidates[0].sizes, M: bow } }, result.candidates[1]] };
+  const built = () => buildPattern(broken, [draft(1, { name: 'Rukáv', grainAngle: 30 }), draft(2, { name: 'Záda', grainAngle: 0 })], { ...meta, sizes: ['M', 'L'] });
+  it('names the piece and size whose outline cannot be validated', () => {
+    expect(checkPieces(built())).toMatchObject([{ pieceId: 'rukav', pieceName: 'Rukáv', size: 'M', problem: 'outline' }]);
+    expect(checkPieces(buildPattern(result, [draft(1, { grainAngle: 30 })], meta))).toEqual([]);
+  });
+  it('drops one size and keeps the others', () => {
+    const pattern = applySkips(built(), [{ pieceId: 'rukav', size: 'M' }]);
+    expect(Object.keys(pattern.pieces[0].sizes)).toEqual(['L']);
+    expect(pattern.pieces).toHaveLength(2);
+    expect(() => parsePatternFile(pattern)).not.toThrow();
+    expect(checkPieces(pattern)).toEqual([]);
+  });
+  it('drops a piece whose only size is bad, and sizes no piece has any more', () => {
+    const only: TraceResult = { ...result, sizes: ['M'], candidates: [{ id: 1, refSize: 'M', sizes: { M: bow }, labels: [] }] };
+    const pattern = buildPattern(only, [draft(1, { name: 'Rukáv' })], { ...meta, sizes: ['M'] });
+    expect(checkPieces(pattern)).toHaveLength(1);
+    const empty = applySkips(pattern, [{ pieceId: 'rukav', size: 'M' }]);
+    expect(empty.pieces).toEqual([]);
+    expect(empty.sizes).toEqual([]);
+    expect(applySkips(built(), [{ pieceId: 'rukav' }]).pieces.map(p => p.id)).toEqual(['zada']);
+  });
+  it('reports a fold off the outline as a fold problem and can save without it', () => {
+    const pattern = buildPattern(result, [draft(2, { grainAngle: 0 })], meta);
+    pattern.pieces[0].sizes.L.fold = [[3, 3], [3, 8]];
+    expect(checkPieces(pattern)).toMatchObject([{ size: 'L', problem: 'fold' }]);
+    const fixed = applySkips(pattern, [{ pieceId: pattern.pieces[0].id, size: 'L', fold: true }]);
+    expect(fixed.pieces[0].sizes.L).not.toHaveProperty('fold');
+    expect(checkPieces(fixed)).toEqual([]);
+  });
+});
+
+describe('same outline for all sizes', () => {
+  it('copies the reference outline into every size of the pattern', () => {
+    const one: TraceResult = { cmPerPt: k, sizes: ['34', '36', '42', '50'], candidates: [{ id: 1, refSize: '42', sizes: { 42: rotated([0, 0], 10, 20, 0) }, labels: [] }] };
+    const sizes = ['34', '36', '42', '50'];
+    const pattern = parsePatternFile(buildPattern(one, [draft(1, { grainAngle: 0, allSizes: true })], { ...meta, sizes }));
+    expect(pattern.sizes).toEqual(sizes);
+    expect(Object.keys(pattern.pieces[0].sizes)).toEqual(sizes);
+    for (const size of sizes) expect(pattern.pieces[0].sizes[size]).toEqual(pattern.pieces[0].sizes['42']);
+    expect(Object.keys(buildPattern(one, [draft(1, { grainAngle: 0 })], { ...meta, sizes }).pieces[0].sizes)).toEqual(['42']);
+  });
+});
+
+describe('rectangle pieces', () => {
+  const rectangle = (patch: Partial<RectangleDraft> = {}): RectangleDraft => ({ ...newRectangle(['S', 'M']), name: 'Manžeta', cut: [{ material: 'hlavní', count: 2 }], ...patch });
+  const build = (rectangles: RectangleDraft[]) => parsePatternFile(buildPattern(result, [draft(1, { include: false })], { ...meta, sizes: ['S', 'M'] }, rectangles));
+  it('builds one width × length for every size', () => {
+    const pattern = build([rectangle({ name: 'Plisé', sizes: { S: { width: 7, height: 44 }, M: { width: 7, height: 44 } } })]);
+    expect(pattern.sizes).toEqual(['S', 'M']);
+    for (const size of ['S', 'M']) expect(pattern.pieces[0].sizes[size]).toMatchObject({ bbox: [7, 44], area: 308, outline: [[0, 0], [0, 44], [7, 44], [7, 0]] });
+    expect(pattern.pieces[0]).toMatchObject({ id: 'plise', name: 'Plisé', cut: [{ material: 'hlavní', count: 2 }] });
+    expect(signedArea(pattern.pieces[0].sizes.S.outline)).toBeLessThan(0);
+  });
+  it('builds different dimensions per size, with unique ids next to traced pieces', () => {
+    const pattern = parsePatternFile(buildPattern(result, [draft(2, { name: 'Manžeta' })], { ...meta, sizes: ['M', 'L'] },
+      [rectangle({ perSize: true, sizes: { M: { width: 6, height: 17 }, L: { width: 6, height: 17.5 } } })]));
+    expect(pattern.pieces.map(p => p.id)).toEqual(['manzeta', 'manzeta-2']);
+    expect(pattern.pieces[1].sizes.M.area).toBe(102);
+    expect(pattern.pieces[1].sizes.L.area).toBe(105);
+    expect(pattern.sizes).toEqual(['M', 'L']);
+  });
+  it('blocks a missing name and zero, negative or empty dimensions', () => {
+    const ok = rectangle({ sizes: { S: { width: 7, height: 44 }, M: { width: 7, height: 44 } } });
+    expect(rectangleProblems(ok)).toEqual([]);
+    expect(rectangleProblems({ ...ok, name: ' ' })).toHaveLength(1);
+    for (const bad of [0, -3, NaN, 1001]) expect(rectangleProblems({ ...ok, sizes: { ...ok.sizes, M: { width: bad, height: 5 } } }), String(bad)).toHaveLength(1);
+    expect(rectangleProblems(newRectangle(['S']))).toHaveLength(2);
   });
 });
 

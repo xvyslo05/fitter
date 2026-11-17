@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readPdf } from '../src/pdf/readPdf';
-import { CM_PER_PT, detectScale, overrideScale, withoutScaleMarks } from '../src/pdf/scale';
+import { CM_PER_PT, detectScale, overrideScale, parseDecimal, resolveScale, withoutScaleMarks } from '../src/pdf/scale';
 import { pdfBytes } from './pdf-writer';
 
 describe('PDF scale', () => {
@@ -9,7 +9,9 @@ describe('PDF scale', () => {
       content: '4 w 20 40 140 140 re S BT /F1 12 Tf 20 25 Td (5x5 cm) Tj ET',
     }]));
     const result = detectScale(doc);
-    expect(result).toEqual({ source: 'square', page: 2, measuredPt: 140, squareCm: 5, cmPerPt: 5 / 140 });
+    expect(result).toEqual({ source: 'square', page: 2, measuredPt: 140, squareCm: 5, cmPerPt: 5 / 140, squarePt: [20, expect.any(Number), 140, 140] });
+    expect(result.squarePt![2]).toBeCloseTo(result.measuredPt!, 2);
+    expect(result.squarePt![3]).toBeCloseTo(result.measuredPt!, 2);
     expect(overrideScale(result, 10).cmPerPt).toBe(10 / 140);
     expect(() => overrideScale(result, 0)).toThrow();
     expect(() => overrideScale(result, NaN)).toThrow();
@@ -27,5 +29,22 @@ describe('PDF scale', () => {
     const doc = await readPdf(pdfBytes([{ content: '10 10 140 140 re S 10 160 140.2 140.2 re S 160 10 100 100 re S' }]));
     expect(withoutScaleMarks(doc.pages[0].paths, [])).toHaveLength(3);
     expect(withoutScaleMarks(doc.pages[0].paths, [], detectScale(doc))).toHaveLength(1);
+  });
+  it('turns the yes/no answer into a scale without throwing', async () => {
+    const square = detectScale(await readPdf(pdfBytes([{ content: '4 w 20 40 140 140 re S BT /F1 12 Tf 20 25 Td (5x5 cm) Tj ET' }])));
+    const none = detectScale(await readPdf(pdfBytes([{ content: '20 20 100 80 re S' }])));
+    expect(resolveScale(square, { ok: true })).toEqual({ scale: square });
+    const smaller = resolveScale(square, { ok: false, measuredCm: 4.8 }), scaled = resolveScale(none, { percent: 97 });
+    expect('scale' in smaller && smaller.scale.cmPerPt).toBeCloseTo(square.cmPerPt * 0.96, 12);
+    expect('scale' in scaled && scaled.scale.cmPerPt).toBeCloseTo(CM_PER_PT * 0.97, 12);
+    for (const bad of [{ ok: false as const, measuredCm: NaN }, { ok: false as const, measuredCm: 0 }, { ok: false as const, measuredCm: -3 }]) expect(resolveScale(square, bad)).toHaveProperty('error');
+    for (const bad of [NaN, 0, -5, Infinity]) expect(resolveScale(none, { percent: bad })).toHaveProperty('error');
+    expect(resolveScale(none, { ok: false, measuredCm: 5 })).toHaveProperty('error');
+  });
+  it('reads decimal input with a comma', () => {
+    expect(parseDecimal('4,8')).toBe(4.8);
+    expect(parseDecimal(' 4.8 ')).toBe(4.8);
+    expect(parseDecimal('97')).toBe(97);
+    for (const bad of ['', 'abc', '4,8cm', '-3', '1,2,3']) expect(parseDecimal(bad)).toBeNaN();
   });
 });

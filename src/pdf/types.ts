@@ -20,7 +20,7 @@ export interface StyleEntry {
   key: string; kind: 'stroke' | 'fill'; color: Color; width: number; dash: number[];
   paths: number; lengthPt: number; closedLengthPt: number;
 }
-export interface ScaleResult { cmPerPt: number; source: 'square' | 'default'; squareCm?: number; measuredPt?: number; page?: number }
+export interface ScaleResult { cmPerPt: number; source: 'square' | 'default'; squareCm?: number; measuredPt?: number; page?: number; squarePt?: [number, number, number, number] }
 export interface TraceOptions { resolutionMm: number; gapMm: number; minAreaCm2: number; cmPerPt: number }
 export interface PieceCandidate { id: number; refSize: string; sizes: Record<string, Pt[]>; labels: string[] }
 export interface TraceResult { cmPerPt: number; sizes: string[]; candidates: PieceCandidate[] }

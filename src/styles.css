@@ -1341,6 +1341,12 @@ main {
 .pdf-trace-settings { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 .pdf-trace-settings input { width:100%; }
 .pdf-candidates { font-variant-numeric:tabular-nums; }
+.pdf-confirm { display:grid; gap:14px; }
+.pdf-answer { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; }
+.pdf-answer .primary { width:auto; padding:10px 28px; }
+.pdf-scale-question { display:grid; gap:8px; justify-items:start; }
+.pdf-square-picture { width:220px; height:220px; border:1px solid var(--border); border-radius:8px; max-width:100%; }
+.pdf-advanced { margin:12px 0; }
 .pdf-scale-marks { display:flex; gap:8px; align-items:center; font-size:13px; }
 .pdf-scale-marks input { width:auto; }
 @media (max-width:900px) {
@@ -1375,6 +1381,8 @@ main {
 .pdf-save-form { display:grid; gap:10px; min-width:0; }
 .pdf-save-form h3,.pdf-save-summary h3 { margin:10px 0 4px; }
 .pdf-save-summary { min-width:0; }
+.pdf-problems { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:10px; }
+.pdf-problem-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .pdf-save-summary>p { margin-bottom:8px; }
 .pdf-size-order { list-style:none; padding:0; margin:0; border:1px solid var(--border); border-radius:8px; }
 .pdf-size-order li { display:flex; align-items:center; gap:4px; padding:2px 6px 2px 12px; border-bottom:1px solid var(--border); }

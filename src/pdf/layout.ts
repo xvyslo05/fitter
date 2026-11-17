@@ -297,7 +297,8 @@ function overviewBlocks(doc: PdfDoc, matches: Match[], step: Pt): LayoutBlock[] 
   });
 }
 
-export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string } {
+// confident: every block joins several pages, so the blocks need not be entered by hand.
+export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string; confident: boolean } {
   if (!doc.pages.length) throw new Error('PDF neobsahuje stránky.');
   const size: Pt = [median(doc.pages.map(p => p.width)), median(doc.pages.map(p => p.height))];
   const matches = matchPages(doc), frame = frameStep(doc.pages, size);
@@ -327,5 +328,6 @@ export function detectLayout(doc: PdfDoc): { layout: PageLayout; source: string 
   }
   if (blocks.some(b => b.pages[0] !== b.pages[1])) blocks = blocks.filter(b => b.pages[0] !== b.pages[1]);
   if (blocks.every(b => b.pages[0] === b.pages[1]) && doc.pages.length > 1) sources.push('bloky je třeba zadat');
-  return { layout: { step, blocks }, source: [...new Set(sources)].join(' + ') };
+  const confident = blocks.every(b => b.pages[0] !== b.pages[1]);
+  return { layout: { step, blocks }, source: [...new Set(sources)].join(' + '), confident };
 }

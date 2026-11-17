@@ -52,7 +52,7 @@ describe.skipIf(!present)('local PDF acceptance (offsets only)', () => {
     const limitation = documentedLimits[name];
     const error = offsetError(automatic, detected.layout.blocks, config.pages, config.step);
     // stdout remains visible even when Vitest suppresses successful console logs.
-    process.stdout.write(`${name}: automatic=${complete ? 'complete' : 'documented partial'}; manual blocks needed=${complete ? 'no' : 'yes'}; step=${detected.layout.step.map(n => n.toFixed(3)).join(',')}; detected-block offset error=${error.toFixed(3)} pt; layout/place/assemble=${elapsed.toFixed(0)} ms${limitation ? `; ${limitation.reason}` : ''}\n`);
+    process.stdout.write(`${name}: automatic=${complete ? 'complete' : 'documented partial'}; manual blocks needed=${complete ? 'no' : 'yes'}; confident=${detected.confident}; step=${detected.layout.step.map(n => n.toFixed(3)).join(',')}; detected-block offset error=${error.toFixed(3)} pt; layout/place/assemble=${elapsed.toFixed(0)} ms${limitation ? `; ${limitation.reason}` : ''}\n`);
     if (limitation) {
       expect(complete, limitation.reason).toBe(false);
       expect(detected.layout.blocks).toEqual(limitation.blocks);
@@ -62,6 +62,7 @@ describe.skipIf(!present)('local PDF acceptance (offsets only)', () => {
     } else {
       expect(complete, `Detected blocks: ${JSON.stringify(detected.layout.blocks)}`).toBe(true);
       expect(detected.layout.blocks).toEqual(expectedBlocks[name]);
+      expect(detected.confident).toBe(true);
     }
     expect(elapsed).toBeLessThan(3000);
     expect(error).toBeLessThanOrEqual(1.5);
