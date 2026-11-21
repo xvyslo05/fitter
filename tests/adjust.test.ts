@@ -67,7 +67,7 @@ describe('tryMove', () => {
     expect(up.result.usedLength).toBeCloseTo(15, 9);
     expect(Math.abs(up.result.utilization - (2 * area(square(10))) / (100 * up.result.usedLength))).toBeLessThan(1e-9);
     const fixed = tryMove(r, pieces, { ...fabric, length: 50 }, 0.5, 'b', 0, -25);
-    expect(Math.abs(fixed.result.utilization - 200 / (100 * 50))).toBeLessThan(1e-9);
+    expect(Math.abs(fixed.result.utilization - 200 / (100 * fixed.result.usedLength))).toBeLessThan(1e-9);
     expect(up.result.iterations).toBe(5);
   });
   it('rejects an unknown key', () => {

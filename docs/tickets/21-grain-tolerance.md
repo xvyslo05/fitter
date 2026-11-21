@@ -67,5 +67,7 @@ See README "Definition of done". README "Výpočet a jeho meze" and "Použití" 
 
 ## Decisions assumed
 
+- Potvrzeno 2026-11-21 přednáškou TUL (Zelová, 4. přednáška, slide 11 resp. 12), viz docs/marker-rules.md.
+
 - D11 CONFIRM VALUE: tolerance 3°, from school notes, unconfirmed. ASSUMED default: off, opt-in at 3°.
 - D9 ASSUMED: nesting-quality work comes after import and UX.

@@ -62,13 +62,14 @@ export const en: Record<Exclude<keyof typeof cs, `${string}.few`>, string> = {
   'fabric.have': 'I have a piece',
   'fabric.haveHint': 'I’ll enter its length',
   'fabric.width': 'Fabric width',
+  'fabric.widthNote': 'Enter the width without the selvages; they are not used for cutting. For a knit that curls at the edges, leave out the curled edge too.',
   'fabric.length': 'Piece length',
   'fabric.presetsLabel': 'Common widths for {material}',
   'fabric.presetWidth': 'Width {width:l2}',
   'fabric.folded': 'Folded in half, right sides together',
   'fabric.foldedNote': 'You cut two layers at once. The drawing shows half the width ({half:l3}), with the fold on the left.',
   'fabric.directional': 'Fabric has a nap or a one-way print',
-  'fabric.directionalNote': 'For example velvet, corduroy, or a print with a top and a bottom. All pieces will be placed facing the same way.',
+  'fabric.directionalNote': 'For example velvet, corduroy, shiny fabrics with a strong surface texture, or a print with a top and a bottom. All pieces will be placed facing the same way.',
 
   // Refine.tsx
   'refine.summaryChanged': 'Fine-tune · changed: {list}',
@@ -77,7 +78,7 @@ export const en: Record<Exclude<keyof typeof cs, `${string}.few`>, string> = {
   'refine.seamAmount': 'Seam allowance',
   'refine.gap': 'Gap between pieces',
   'refine.seamNote': 'The seam allowance is added only to patterns where it is ticked. It applies to all patterns.',
-  'refine.gapNote': 'Gap between pieces: room for cutting between neighboring pieces. For cutting with scissors leave {gapAdvice:l1}; at 0 the pieces may touch. The seam allowance is already counted separately.',
+  'refine.gapNote': 'Gap between pieces: room for cutting between neighboring pieces. Garment factories leave 0–1 mm for automatic cutters, 5 mm for hand cutting and 15 mm for technical textiles. For cutting with scissors leave {gapAdvice:l1}; leave more for fabrics that fray, curl at the edges or are thick. At 0 the pieces may touch. The seam allowance is already counted separately.',
   'refine.gapDefault': 'Default',
   'refine.rotation': 'Rotating pieces',
   'refine.rotationLabel': 'How pieces may be turned',
@@ -116,7 +117,7 @@ export const en: Record<Exclude<keyof typeof cs, `${string}.few`>, string> = {
   'order.optionalPiece': 'optional piece',
   'order.rotationPieces': 'Rotation of individual pieces',
   'order.rotatedCount': 'changed for {count}',
-  'order.rotationNote': 'Rotating by 90° changes the grain direction. A piece on the fold is only flipped along the fold.',
+  'order.rotationNote': 'Rotating by 90° changes the grain direction; mainly for nonwovens. A piece on the fold is only flipped along the fold.',
   'order.rotationLabel': 'Rotation · {name}',
 
   // App.tsx
@@ -183,7 +184,7 @@ export const en: Record<Exclude<keyof typeof cs, `${string}.few`>, string> = {
   'results.notes': 'Cutting notes',
   'results.pending': 'Waiting to be calculated…',
   'results.notComputed': 'This fabric has not been calculated yet.',
-  'results.footnote': 'The outline is the final cutting line. Before cutting, check the print direction, the nap of the fabric and the pattern’s instructions.',
+  'results.footnote': 'The outline is the final cutting line. Before cutting, check the print direction, the nap of the fabric and the pattern’s instructions. The app does not match stripes or checks; for those, allow extra fabric and lay out the pieces yourself.',
 
   // Layout.tsx
   'layout.mirrored': 'Mirrored against the pattern',

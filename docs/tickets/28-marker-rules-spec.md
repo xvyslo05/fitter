@@ -102,5 +102,7 @@ Document written and linked from `docs/tickets/README.md`; tickets 21 and 22 ann
 
 ## Decisions assumed
 
+- Potvrzeno 2026-11-21 přednáškou TUL (Zelová, 4. přednáška, slide 11 resp. 12), viz docs/marker-rules.md.
+
 - D11 CONFIRM VALUE: grain tolerance 3°.
 - D12 CONFIRM VALUE: default gap 0.5 cm.

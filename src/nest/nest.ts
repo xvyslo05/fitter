@@ -88,7 +88,7 @@ function placePass(pieces: NestPiece[], fabric: Fabric, opts: NestOptions, raste
     if (raster.rows.length) boardBottom = Math.max(boardBottom, y + raster.rows[raster.rows.length - 1].y + 1);
     placedArea += area(piece.polygon);
   }
-  return { placements, unplaced, usedLength, utilization: placedArea / (width * (fabric.length ?? usedLength) || 1), iterations: 1 };
+  return { placements, unplaced, usedLength, utilization: placedArea / (width * usedLength || 1), iterations: 1 };
 }
 const initialOrder = (pieces: NestPiece[]) => pieces.map((_, i) => i).sort((a, b) => area(pieces[b].polygon) - area(pieces[a].polygon));
 

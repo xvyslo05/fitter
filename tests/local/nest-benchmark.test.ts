@@ -59,6 +59,7 @@ describe.skipIf(!present)('nesting benchmark (local, FITTER_BENCH=1)', () => {
       'Reference (TUL thesis, industrial markers): manual Investronica 86.0 %, AccuMark 87.3 %, NestMakerXQ 82.23 %;',
       'automatic 85.3 %, 88.3 %, 69.78 % (same order). Not directly comparable: industrial markers combine many garments',
       'and sizes on wide fabric with different gap, grain and seam rules. Use as a ceiling for orientation only.\n',
+      'TUL lecture (Zelová, polohování, slide 20): multi-size industrial markers M/XL/2XL at about 187 cm width reach 85.27 % and 85.68 %; single-garment markers are described as mostly unfavourable for yield.',
     ].join('\n'));
   }, 170_000);
 });

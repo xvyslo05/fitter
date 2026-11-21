@@ -22,9 +22,9 @@ export interface Settings extends NestOptions {
   // Largest tilt of a piece off the grainline in degrees, 0-5; 0 = off.
   grainTolerance: number;
 }
-// Default gap between pieces in cm; pending confirmation, ticket 28.
+// Default gap between pieces in cm; 5 mm = hand cutting in the TUL lecture (docs/marker-rules.md).
 export const DEFAULT_GAP_CM = 0.5;
-// Tilt the checkbox "Povolit mírné natočení dílů" switches on; confirm value (ticket 28). Off by default until confirmed.
+// Tilt the checkbox "Povolit mírné natočení dílů" switches on; ±3° per the TUL lecture (docs/marker-rules.md). Off by default.
 export const DEFAULT_GRAIN_TOLERANCE_DEG = 3;
 export const defaultSettings: Settings = {
   seamAmount: 1, gap: DEFAULT_GAP_CM, resolution: 0.5, timeMs: 5000, seed: 42,

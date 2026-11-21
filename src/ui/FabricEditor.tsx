@@ -14,6 +14,7 @@ export function FabricEditor({ material, fabric, onChange }: { material: string;
     </div>
     <div class="field-row"><LengthField label={t('fabric.width')} srLabel={material} min={1} max={1000} value={fabric.width} onChange={width => onChange({ ...fabric, width })} />
       {fabric.length !== null && <LengthField label={t('fabric.length')} srLabel={material} min={1} max={10000} value={fabric.length} onChange={length => onChange({ ...fabric, length })} />}</div>
+    <p class="small muted">{t('fabric.widthNote')}</p>
     <div class="presets" role="group" aria-label={t('fabric.presetsLabel', { material })}>
       {fabricWidthPresets(unit).map(width => <button type="button" key={width} class="preset" aria-pressed={fabric.width === width} aria-label={t('fabric.presetWidth', { width })}
         onClick={() => onChange({ ...fabric, width })}>{fmt.length(width, unit, 0)}</button>)}

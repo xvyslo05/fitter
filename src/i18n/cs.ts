@@ -62,13 +62,14 @@ export const cs = {
   'fabric.have': 'Už mám kus',
   'fabric.haveHint': 'zadám jeho délku',
   'fabric.width': 'Šíře látky',
+  'fabric.widthNote': 'Zadejte šíři bez pevných okrajů, ty se do střihu nepočítají. U pleteniny, která se na krajích stáčí, odečtěte i stočený okraj.',
   'fabric.length': 'Délka kusu',
   'fabric.presetsLabel': 'Časté šíře látky {material}',
   'fabric.presetWidth': 'Šíře {width:l2}',
   'fabric.folded': 'Složená napůl, lícem dovnitř',
   'fabric.foldedNote': 'Stříháte dvě vrstvy najednou. Na nákresu je polovina šíře ({half:l3}), přehyb je vlevo.',
   'fabric.directional': 'Látka má vlas nebo směr vzoru',
-  'fabric.directionalNote': 'Například samet, manšestr nebo potisk, který má nahoře a dole. Všechny díly budou položené stejným směrem.',
+  'fabric.directionalNote': 'Například samet, manšestr, lesklé látky s výraznou strukturou nebo potisk, který má nahoře a dole. Všechny díly budou položené stejným směrem.',
 
   // Refine.tsx
   'refine.summaryChanged': 'Upřesnit · změněno: {list}',
@@ -77,7 +78,7 @@ export const cs = {
   'refine.seamAmount': 'Přídavek na švy',
   'refine.gap': 'Mezera mezi díly',
   'refine.seamNote': 'Přídavek na švy se přidá jen u střihů, kde je to zaškrtnuté. Platí pro všechny střihy.',
-  'refine.gapNote': 'Mezera mezi díly: místo na stříhání mezi sousedními díly. Pro stříhání nůžkami nechte {gapAdvice:l1}; při 0 se díly mohou dotýkat. Přídavek na švy je už započítaný zvlášť.',
+  'refine.gapNote': 'Mezera mezi díly: místo na stříhání mezi sousedními díly. V oděvní výrobě se nechává 0–1 mm při stříhání automatem, 5 mm při ručním výřezu a 15 mm v technické konfekci. Pro stříhání nůžkami nechte {gapAdvice:l1}; u látek, které se třepí, stáčejí na krajích nebo jsou silné, raději víc. Při 0 se díly mohou dotýkat. Přídavek na švy je už započítaný zvlášť.',
   'refine.gapDefault': 'Výchozí',
   'refine.rotation': 'Otáčení dílů',
   'refine.rotationLabel': 'Jak smí být díly otočené',
@@ -116,7 +117,7 @@ export const cs = {
   'order.optionalPiece': 'volitelný díl',
   'order.rotationPieces': 'Otáčení jednotlivých dílů',
   'order.rotatedCount': 'změněno u {count}',
-  'order.rotationNote': 'Otáčení o 90° mění směr vlákna. Na přehybu se díl pouze obrací podél přehybu.',
+  'order.rotationNote': 'Otáčení o 90° mění směr vlákna; hodí se hlavně pro netkané textilie. Na přehybu se díl pouze obrací podél přehybu.',
   'order.rotationLabel': 'Otáčení · {name}',
 
   // App.tsx
@@ -183,7 +184,7 @@ export const cs = {
   'results.notes': 'Poznámky ke stříhání',
   'results.pending': 'Čeká na výpočet…',
   'results.notComputed': 'Tato látka se zatím nespočítala.',
-  'results.footnote': 'Obrys představuje výslednou řeznou linii. Před stříháním zkontrolujte směr vzoru, vlas látky a údaje ke střihu.',
+  'results.footnote': 'Obrys představuje výslednou řeznou linii. Před stříháním zkontrolujte směr vzoru, vlas látky a údaje ke střihu. Proužky a kostky aplikace nenavazuje; u nich počítejte s více látkou a díly rozložte ručně.',
 
   // Layout.tsx
   'layout.mirrored': 'Zrcadlově proti střihu',

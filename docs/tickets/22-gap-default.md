@@ -60,4 +60,6 @@ See README "Definition of done". README step 4 gains the one-line explanation. S
 
 ## Decisions assumed
 
+- Potvrzeno 2026-11-21 přednáškou TUL (Zelová, 4. přednáška, slide 11 resp. 12), viz docs/marker-rules.md.
+
 - D12 CONFIRM VALUE: default gap 0.5 cm stays until the school notes say otherwise.

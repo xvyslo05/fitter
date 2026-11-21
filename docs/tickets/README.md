@@ -48,8 +48,8 @@ These are the analyst's recommendations, not confirmed by the product owner. Eve
 | D8 | Rename core nouns | Yes (ticket 23), before i18n extraction | ASSUMED |
 | D9 | Invest in nesting quality now? | After import and UX work | ASSUMED |
 | D10 | Licence and hosting notice | Open; no ticket depends on it | OPEN |
-| D11 | Grain tolerance value (ticket 21) | 3° | CONFIRM VALUE with the TUL notes |
-| D12 | Default gap between pieces (ticket 22) | 0.5 cm unchanged | CONFIRM VALUE with the TUL notes |
+| D11 | Grain tolerance value (ticket 21) | 3° | CONFIRMED (TUL-ZEL/11) |
+| D12 | Default gap between pieces (ticket 22) | 0.5 cm unchanged | CONFIRMED (TUL-ZEL/12) |
 | D13 | How fitter earns money (ticket 29) | none; candidates in the ticket | OPEN |
 
 ## Index
@@ -78,15 +78,17 @@ Executor: HC = head chef (design or needs conversation context), W = delegated w
 | [18](18-english-import-vocabulary.md) | English vocabulary in import heuristics | S–M | – | W | D5 assumed |
 | [19](19-library-backup-restore.md) | Library and project backup/restore | S | – | W | D6 assumed |
 | [20](20-pdf-layers.md) | PDF layers as size hints | M | – | HC decides, W code | D1 assumed |
-| [21](21-grain-tolerance.md) | Free grain-direction tolerance | M | 28 for the value | HC | D11 to confirm |
-| [22](22-gap-default.md) | Gap default as one pinned constant, help text | S | 28 for the value | W | D12 to confirm |
+| [21](21-grain-tolerance.md) | Free grain-direction tolerance | M | 28 for the value | HC | D11 confirmed |
+| [22](22-gap-default.md) | Gap default as one pinned constant, help text | S | 28 for the value | W | D12 confirmed |
 | [23](23-terminology-rename.md) | Rename to "polohový plán" and plain nouns | S–M | – | HC wording, W code | D8 assumed |
 | [24](24-nesting-benchmark.md) | Nesting benchmark script | S | – | W | D9 assumed |
 | [25](25-better-nester-spike.md) | Better nester: design spike | M (spike) | 24 | HC | D9 assumed |
 | [26](26-manual-drag-adjust.md) | Manual drag adjustment of a marker | M–L | – | HC | D7, D9 assumed |
 | [27](27-scale-yes-no.md) | Scale step as a yes/no question | S | – | W | D1 assumed |
-| [28](28-marker-rules-spec.md) | Marker rules from the TUL notes (no code) | S | – | HC | D11, D12 to confirm |
+| [28](28-marker-rules-spec.md) | Marker rules from the TUL notes (no code) | S | – | HC | D11, D12 confirmed |
 | [29](29-monetization.md) | Monetization: choose a model and test it | S | – | HC + owner | D13 open |
+
+Marker rules from the TUL lecture: [marker-rules.md](../marker-rules.md); full comparison and follow-up tickets: [plan-tul-polohovani.md](../plan-tul-polohovani.md).
 
 ## Recommended order
 

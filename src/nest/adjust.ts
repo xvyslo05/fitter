@@ -22,7 +22,7 @@ function recompute(result: NestResult, placements: NestResult['placements'], pie
   const width = fabric.width / (fabric.folded ? 2 : 1), areas = new Map(pieces.map(p => [p.key, area(p.polygon)]));
   const usedLength = placements.reduce((m, p) => Math.max(m, bbox(p.polygon).maxY), 0);
   const placedArea = placements.reduce((sum, p) => sum + (areas.get(p.key) ?? 0), 0);
-  return { ...result, placements, usedLength, utilization: placedArea / (width * (fabric.length ?? usedLength) || 1) };
+  return { ...result, placements, usedLength, utilization: placedArea / (width * usedLength || 1) };
 }
 
 // Moves piece `key` by (dx, dy) cm. Not ok when the piece would leave the fabric, move off the fold,
